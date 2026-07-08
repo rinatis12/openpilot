@@ -286,8 +286,10 @@ body.support-terminal-dialog-open .app-toast-host {
 }
 
 .terminal-approval--status {
-  grid-template-columns: auto minmax(0, 1fr);
-  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-height: 54px;
+  padding: 9px 14px;
   border-color: var(--popup-item-border);
   background: var(--popup-item-bg);
 }
@@ -301,6 +303,10 @@ body.support-terminal-dialog-open .app-toast-host {
   font-size: var(--fs-label-sm);
   font-weight: 850;
   white-space: nowrap;
+}
+
+.terminal-approval--status .terminal-approval__meta {
+  grid-column: 1 / 2;
 }
 
 .terminal-approval__line {
@@ -319,16 +325,17 @@ body.support-terminal-dialog-open .app-toast-host {
 
 .terminal-approval__typingLabel {
   margin-right: 8px;
-  color: var(--md-on-surface-var);
+  color: var(--md-on-surface);
   font-family: inherit;
-  font-size: var(--fs-label-sm);
-  font-weight: 800;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .terminal-approval__draft {
   color: var(--md-on-surface);
   font-family: var(--font-mono);
-  font-weight: 750;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .terminal-approval__actions {

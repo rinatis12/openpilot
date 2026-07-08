@@ -89,7 +89,6 @@ async def ws_terminal(request: web.Request) -> web.WebSocketResponse:
             elif action == "refresh":
               await push_screen(force=True)
             elif action == "new_session":
-              await asyncio.to_thread(tmux.run, ["tmux", "kill-session", "-t", session], 3.0, False)
               created = await asyncio.to_thread(tmux.ensure_session, session)
               await ws.send_str(json.dumps({
                 "type": "meta",

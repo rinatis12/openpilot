@@ -118,9 +118,21 @@ def _support_message(payload: dict[str, Any]) -> str:
   )
   permission_mode = str(payload.get("permissionMode") or "approve_each")
   permission_text = {
-    "approve_each": "매 명령 승인",
+    "approve_each": "항상 확인",
     "allow_all": "전체 허용",
   }.get(permission_mode, permission_mode)
+  link_check = payload.get("linkCheck") or {}
+  link_status = link_check.get("status")
+  link_attempt = link_check.get("attempt")
+  link_max_attempts = link_check.get("max_attempts")
+  link_health_text = "OK"
+  if link_status:
+    link_health_text = f"OK (HTTP {link_status}"
+    if link_check.get("page_verified"):
+      link_health_text += ", page verified"
+    if link_attempt and link_max_attempts:
+      link_health_text += f", {link_attempt}/{link_max_attempts}"
+    link_health_text += ")"
   expires_text = payload.get("ttl_minutes") or 30
   if expires_text == "unlimited":
     expires_text = "unlimited"
@@ -134,6 +146,7 @@ def _support_message(payload: dict[str, Any]) -> str:
     "### Access",
     f"- Link: {payload.get('url') or ''}",
     f"- PIN: **__{payload.get('pin') or ''}__**",
+    f"- Link health: {link_health_text}",
     f"- Expires: {expires_text}",
     f"- Permission: {permission_text}",
   ]

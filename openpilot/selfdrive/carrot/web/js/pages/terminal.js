@@ -17,7 +17,7 @@ const btnTerminalReconnectEl = document.getElementById("btnTerminalReconnect");
 let terminalWs = null;
 let terminalReconnectTimer = null;
 let terminalPageActive = false;
-let terminalSessionName = "carrot-web";
+let terminalSessionName = "comma";
 let terminalLastScreen = "";
 let terminalLayoutBound = false;
 let terminalFollowOutput = true;
@@ -470,13 +470,6 @@ function initTerminalBindings() {
 
   bindNodeOnce(btnTerminalReconnectEl, "clickBound", () => {
     terminalFollowOutput = isTerminalPinnedToBottom();
-    const metaText = String(terminalMetaEl?.textContent || "");
-    const blockedByPassword = terminalLastScreen.includes("Password:");
-    const blockedByStartup = metaText.includes("returned non-zero exit status");
-    if ((blockedByPassword || blockedByStartup) && sendTerminalControl("new_session", { quiet: true })) {
-      setTerminalMeta(getUIText("connecting", "connecting..."));
-      return;
-    }
     connectTerminal(true);
   });
 }

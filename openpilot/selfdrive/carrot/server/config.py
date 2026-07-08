@@ -72,7 +72,7 @@ VISION_DIAG_DEFAULT_DISCORD_KEY = "carrot-vision-log"
 WEBRTCD_URL = "http://127.0.0.1:5001/stream"
 
 # Tmux
-TMUX_WEB_SESSION = "carrot-web"
+TMUX_WEB_SESSION = os.environ.get("CARROT_TMUX_WEB_SESSION", "comma")
 TMUX_CAPTURE_LINES = 160
 TMUX_START_DIR = "/data/openpilot"
 
