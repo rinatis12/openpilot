@@ -41,7 +41,7 @@ function setTerminalSessionInfo(session = terminalSessionName) {
 // The web terminal runs `:` meta commands by typing a fixed CLI bridge into
 // tmux, so tmux echoes the raw `python3 -m ...cli --line <cmd>` invocation.
 // Replace that echo with our own friendly "running command" line.
-const TERMINAL_META_ECHO_RE = /python3 -m selfdrive\.carrot\.server\.terminal_commands\.cli --line (.*)$/gm;
+const TERMINAL_META_ECHO_RE = /(?:env\s+\S*PYTHONPATH=\S+\s+)?python3 -m selfdrive\.carrot\.server\.terminal_commands\.cli --line (.*)$/gm;
 
 function rewriteTerminalMetaEcho(text) {
   return String(text || "").replace(TERMINAL_META_ECHO_RE, (match, raw) => {

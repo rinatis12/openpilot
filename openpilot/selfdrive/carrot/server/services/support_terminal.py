@@ -13,6 +13,7 @@ from typing import Any
 from aiohttp import web, WSMsgType
 
 from ..config import TMUX_WEB_SESSION
+from ..terminal_commands import translate_meta_command
 from . import tmux
 from .support_discord import send_support_webhook, support_metadata
 from .support_tunnel import TunnelHandle, cloudflared_status, start_quick_tunnel
@@ -516,7 +517,7 @@ class SupportTerminalManager:
       elif command.control_action == "clear":
         await asyncio.to_thread(tmux.clear, TMUX_WEB_SESSION)
       else:
-        await asyncio.to_thread(tmux.send_line, TMUX_WEB_SESSION, command.line)
+        await asyncio.to_thread(tmux.send_line, TMUX_WEB_SESSION, translate_meta_command(command.line) or command.line)
       await self.broadcast_all({"type": "command_running", "id": command.id})
       return {"ok": True}
     except Exception as exc:
