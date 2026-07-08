@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import secrets
 import socket
 import time
@@ -28,6 +29,8 @@ SCREEN_POLL_SECONDS = 0.25
 PIN_FAILURE_LIMIT = 5
 PUBLIC_URL_READY_ATTEMPTS = 30
 PUBLIC_URL_READY_DELAY = 1.0
+TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", re.IGNORECASE)
+TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
 
 
 def _now() -> float:
@@ -44,6 +47,18 @@ def _new_session_id() -> str:
 
 def _new_csp_nonce() -> str:
   return base64.b64encode(secrets.token_bytes(16)).decode("ascii")
+
+
+def _translate_support_terminal_line(line: str) -> str:
+  translated = translate_meta_command(line)
+  if translated:
+    return translated
+  text = str(line or "")
+  if TMUX_ATTACH_RE.match(text):
+    return "TMUX= tmux a -t comma"
+  if TMUX_ATTACH_TARGET_RE.match(text):
+    return f"TMUX= {text.strip()}"
+  return text
 
 
 async def _wait_public_url_ready(session: ClientSession | None, url: str) -> dict[str, Any]:
@@ -589,7 +604,7 @@ class SupportTerminalManager:
       elif command.control_action == "clear":
         await asyncio.to_thread(tmux.clear, TMUX_WEB_SESSION)
       else:
-        await asyncio.to_thread(tmux.send_line, TMUX_WEB_SESSION, translate_meta_command(command.line) or command.line)
+        await asyncio.to_thread(tmux.send_line, TMUX_WEB_SESSION, _translate_support_terminal_line(command.line))
       await self.broadcast_all({"type": "command_running", "id": command.id})
       return {"ok": True}
     except Exception as exc:

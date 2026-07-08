@@ -17,12 +17,14 @@ const btnTerminalReconnectEl = document.getElementById("btnTerminalReconnect");
 let terminalWs = null;
 let terminalReconnectTimer = null;
 let terminalPageActive = false;
-let terminalSessionName = "comma";
+let terminalSessionName = "carrot-web";
 let terminalLastScreen = "";
+let terminalPtyBuffer = "";
 let terminalLayoutBound = false;
 let terminalFollowOutput = true;
 let terminalCurrentCwd = "/data/openpilot";
 let terminalScrollRaf = 0;
+const terminalUsePty = true;
 
 function setTerminalMeta(text) {
   if (terminalMetaEl) terminalMetaEl.textContent = String(text || "");
@@ -78,6 +80,33 @@ function sanitizeTerminalScreen(text) {
 
   if (!nextText.trim()) return " ";
   return nextText;
+}
+
+function stripTerminalAnsi(text) {
+  return String(text || "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[()][A-Za-z0-9]/g, "")
+    .replace(/\x0f/g, "");
+}
+
+function appendTerminalPtyOutput(chunk) {
+  let text = stripTerminalAnsi(chunk).replace(/\r\n/g, "\n");
+  if (!text) return;
+  let out = terminalPtyBuffer || "";
+  for (const ch of Array.from(text)) {
+    if (ch === "\r") {
+      const index = out.lastIndexOf("\n");
+      out = index >= 0 ? out.slice(0, index + 1) : "";
+    } else if (ch === "\b") {
+      out = out.slice(0, -1);
+    } else {
+      out += ch;
+    }
+  }
+  const lines = out.split("\n");
+  terminalPtyBuffer = lines.length > 600 ? lines.slice(-600).join("\n") : out;
+  setTerminalScreen(terminalPtyBuffer || " ", false);
 }
 
 function extractTerminalCwd(text) {
@@ -147,6 +176,7 @@ function updateTerminalOverflowState() {
 
 function clearTerminalViewport() {
   terminalLastScreen = "";
+  terminalPtyBuffer = "";
   if (terminalOutputEl) terminalOutputEl.innerHTML = "";
   updateTerminalOverflowState();
   pinTerminalToBottom({ immediate: true });
@@ -288,6 +318,7 @@ function bindTerminalLayoutObservers() {
     updateTerminalViewportMetrics();
     updateTerminalToastAnchor();
     updateTerminalOverflowState();
+    sendTerminalResize();
     if (terminalFollowOutput) pinTerminalToBottom();
   });
   window.addEventListener("resize", handleLayout, { passive: true });
@@ -320,7 +351,26 @@ function closeTerminalSocket() {
 
 function getTerminalWsUrl() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/ws/terminal?session=${encodeURIComponent(terminalSessionName)}`;
+  const size = estimateTerminalSize();
+  const path = terminalUsePty ? "/ws/terminal_pty" : "/ws/terminal";
+  return `${proto}://${location.host}${path}?session=${encodeURIComponent(terminalSessionName)}&cols=${size.cols}&rows=${size.rows}`;
+}
+
+function estimateTerminalSize() {
+  const rect = terminalScreenEl?.getBoundingClientRect?.();
+  const style = terminalOutputEl ? getComputedStyle(terminalOutputEl) : null;
+  const fontSize = Number.parseFloat(style?.fontSize || "13") || 13;
+  const lineHeight = Number.parseFloat(style?.lineHeight || "") || (fontSize * 1.45);
+  const charWidth = Math.max(6, fontSize * 0.62);
+  return {
+    cols: Math.max(40, Math.floor(((rect?.width || 800) - 24) / charWidth)),
+    rows: Math.max(12, Math.floor(((rect?.height || 420) - 12) / lineHeight)),
+  };
+}
+
+function sendTerminalResize() {
+  if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
+  sendTerminalPacket({ type: "resize", ...estimateTerminalSize() }, { quiet: true });
 }
 
 function scheduleTerminalReconnect(delay = 1200) {
@@ -362,6 +412,7 @@ function connectTerminal(force = false) {
   }
 
   setTerminalMeta(getUIText("connecting", "connecting..."));
+  if (terminalUsePty) clearTerminalViewport();
 
   let ws;
   try {
@@ -391,7 +442,18 @@ function connectTerminal(force = false) {
 
     if (data.type === "meta") {
       setTerminalSessionInfo(data.session || terminalSessionName);
-      setTerminalMeta(data.created ? getUIText("terminal_ready", "tmux ready") : getUIText("connected", "connected"));
+      setTerminalMeta(data.mode === "pty"
+        ? getUIText("connected", "connected")
+        : (data.created ? getUIText("terminal_ready", "tmux ready") : getUIText("connected", "connected")));
+      sendTerminalResize();
+      return;
+    }
+
+    if (data.type === "pty_output") {
+      appendTerminalPtyOutput(data.text || "");
+      if (terminalMetaEl && terminalMetaEl.textContent === getUIText("connecting", "connecting...")) {
+        setTerminalMeta(getUIText("connected", "connected"));
+      }
       return;
     }
 
