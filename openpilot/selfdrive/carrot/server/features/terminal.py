@@ -67,6 +67,7 @@ class PersistentPtySession:
     self.proc: Optional[subprocess.Popen] = None
     self.reader_task: asyncio.Task | None = None
     self.clients: set[web.WebSocketResponse] = set()
+    self.primary_client: web.WebSocketResponse | None = None
     self.history = bytearray()
     self.rows = 28
     self.cols = 100
@@ -75,13 +76,30 @@ class PersistentPtySession:
   def _alive_locked(self) -> bool:
     return self.master_fd >= 0 and self.proc is not None and self.proc.poll() is None
 
+  def _snapshot_locked(self) -> dict:
+    alive = self._alive_locked()
+    return {
+      "alive": alive,
+      "pid": self.proc.pid if alive and self.proc else None,
+      "clients": len(self.clients),
+      "primary": self.primary_client is not None and self.primary_client in self.clients and not self.primary_client.closed,
+      "rows": self.rows,
+      "cols": self.cols,
+      "history_bytes": len(self.history),
+      "session": self.session,
+    }
+
+  async def snapshot(self) -> dict:
+    async with self.lock:
+      return self._snapshot_locked()
+
   async def ensure(self, rows: int, cols: int) -> bool:
     async with self.lock:
+      if self._alive_locked():
+        return False
+
       self.rows = max(8, min(int(rows or self.rows), 200))
       self.cols = max(20, min(int(cols or self.cols), 400))
-      if self._alive_locked():
-        _set_pty_size(self.master_fd, self.rows, self.cols)
-        return False
 
       self._close_fds_locked()
       self.history.clear()
@@ -126,14 +144,37 @@ class PersistentPtySession:
     created = await self.ensure(rows, cols)
     async with self.lock:
       self.clients.add(ws)
+      if self.primary_client is None or self.primary_client.closed or self.primary_client not in self.clients:
+        self.primary_client = ws
+        if self._alive_locked():
+          self.rows = max(8, min(int(rows or self.rows), 200))
+          self.cols = max(20, min(int(cols or self.cols), 400))
+          _set_pty_size(self.master_fd, self.rows, self.cols)
+          proc = self.proc
+        else:
+          proc = None
+      else:
+        proc = None
       history = bytes(self.history)
-      session = self.session
+      snapshot = self._snapshot_locked()
+      session = snapshot["session"]
+      is_primary = ws is self.primary_client
+    if proc and proc.poll() is None:
+      try:
+        os.killpg(proc.pid, signal.SIGWINCH)
+      except Exception:
+        pass
     await ws.send_str(json.dumps({
       "type": "meta",
       "mode": "pty",
       "session": session,
       "created": created,
       "user": "comma",
+      "pid": snapshot["pid"],
+      "clients": snapshot["clients"],
+      "primary": is_primary,
+      "rows": snapshot["rows"],
+      "cols": snapshot["cols"],
     }))
     if history:
       await ws.send_str(json.dumps({
@@ -147,6 +188,8 @@ class PersistentPtySession:
   async def detach(self, ws: web.WebSocketResponse) -> None:
     async with self.lock:
       self.clients.discard(ws)
+      if self.primary_client is ws:
+        self.primary_client = next((client for client in self.clients if not client.closed), None)
 
   async def write_text(self, text: str) -> None:
     data = str(text or "").encode("utf-8", errors="replace")
@@ -164,8 +207,10 @@ class PersistentPtySession:
     async with self.lock:
       self.history.clear()
 
-  async def resize(self, rows: int, cols: int) -> None:
+  async def resize(self, ws: web.WebSocketResponse, rows: int, cols: int) -> None:
     async with self.lock:
+      if ws is not self.primary_client:
+        return
       self.rows = max(8, min(int(rows or self.rows), 200))
       self.cols = max(20, min(int(cols or self.cols), 400))
       if not self._alive_locked():
@@ -406,7 +451,7 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
             if text:
               await PTY_SESSION.write_text(text)
           elif typ == "resize":
-            await PTY_SESSION.resize(int(data.get("rows") or rows), int(data.get("cols") or cols))
+            await PTY_SESSION.resize(ws, int(data.get("rows") or rows), int(data.get("cols") or cols))
           elif typ == "control":
             action = (data.get("action") or "").strip()
             if action == "ctrl_c":
@@ -435,6 +480,10 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
   return ws
 
 
+async def handle_terminal_pty_status(request: web.Request) -> web.Response:
+  return web.json_response({"ok": True, **await PTY_SESSION.snapshot()})
+
+
 async def handle_download_tmux(request: web.Request) -> web.Response:
   path = "/data/media/tmux.log"
   if not os.path.exists(path):
@@ -449,6 +498,7 @@ async def handle_download_tmux(request: web.Request) -> web.Response:
 
 
 def register(app: web.Application) -> None:
+  app.router.add_get("/api/terminal_pty/status", handle_terminal_pty_status)
   app.router.add_get("/ws/terminal", ws_terminal)
   app.router.add_get("/ws/terminal_pty", ws_terminal_pty)
   app.router.add_get("/download/tmux.log", handle_download_tmux)
