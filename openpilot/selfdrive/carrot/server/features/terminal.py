@@ -28,10 +28,12 @@ TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", r
 TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
 
 
-def _translate_terminal_line(line: str) -> str:
+def _translate_terminal_line(line: str, *, nested_tmux: bool = False) -> str:
   translated = translate_meta_command(line)
   if translated:
     return translated
+  if not nested_tmux:
+    return str(line or "")
   text = str(line or "")
   if TMUX_ATTACH_RE.match(text):
     return "TMUX= tmux a -t comma"
@@ -115,7 +117,7 @@ async def ws_terminal(request: web.Request) -> web.WebSocketResponse:
         try:
           if typ == "input":
             line = str(data.get("data") or "")
-            await asyncio.to_thread(tmux.send_line, session, _translate_terminal_line(line))
+            await asyncio.to_thread(tmux.send_line, session, _translate_terminal_line(line, nested_tmux=True))
             await push_screen(force=True, delay=0.03)
           elif typ == "control":
             action = (data.get("action") or "").strip()
@@ -161,7 +163,7 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
   ws = web.WebSocketResponse(heartbeat=20, compress=False)
   await ws.prepare(request)
 
-  session = (request.query.get("session") or TMUX_WEB_SESSION).strip() or TMUX_WEB_SESSION
+  session = "login-shell"
   rows = int(request.query.get("rows") or 28)
   cols = int(request.query.get("cols") or 100)
   master_fd = -1
@@ -172,13 +174,15 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
   try:
     if pty is None:
       raise RuntimeError("PTY terminal is only available on POSIX devices")
-    created = await asyncio.to_thread(tmux.ensure_session, session)
     master_fd, slave_fd = pty.openpty()
     _set_pty_size(master_fd, rows, cols)
     env = os.environ.copy()
     env.pop("TMUX", None)
+    env.setdefault("TERM", "xterm-256color")
+    env.setdefault("COLORTERM", "truecolor")
+    shell = os.environ.get("SHELL") or "/bin/bash"
     proc = subprocess.Popen(
-      ["tmux", "attach-session", "-t", session],
+      [shell, "-lc", tmux.start_command()],
       stdin=slave_fd,
       stdout=slave_fd,
       stderr=slave_fd,
@@ -192,7 +196,7 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
       "type": "meta",
       "mode": "pty",
       "session": session,
-      "created": created,
+      "created": True,
       "user": "comma",
     }))
   except Exception as e:
@@ -212,21 +216,36 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
 
   async def read_pty() -> None:
     assert master_fd >= 0
-    while not ws.closed:
-      try:
-        chunk = await asyncio.to_thread(os.read, master_fd, 4096)
-      except OSError:
-        break
-      if not chunk:
-        break
-      # Send raw bytes as base64 so the browser terminal emulator decodes UTF-8
-      # itself and multi-byte characters split across 4096-byte reads are not
-      # corrupted (which decode(errors="replace") here would do).
-      await ws.send_str(json.dumps({
-        "type": "pty_output",
-        "session": session,
-        "b64": base64.b64encode(chunk).decode("ascii"),
-      }))
+    try:
+      while not ws.closed:
+        try:
+          chunk = await asyncio.to_thread(os.read, master_fd, 4096)
+        except OSError:
+          break
+        if not chunk:
+          break
+        # Send raw bytes as base64 so the browser terminal emulator decodes UTF-8
+        # itself and multi-byte characters split across 4096-byte reads are not
+        # corrupted (which decode(errors="replace") here would do).
+        await ws.send_str(json.dumps({
+          "type": "pty_output",
+          "session": session,
+          "b64": base64.b64encode(chunk).decode("ascii"),
+        }))
+    finally:
+      if not ws.closed:
+        try:
+          await ws.send_str(json.dumps({
+            "type": "pty_exit",
+            "session": session,
+            "exit_code": proc.poll() if proc else None,
+          }))
+        except Exception:
+          pass
+        try:
+          await ws.close()
+        except Exception:
+          pass
 
   reader_task = asyncio.create_task(read_pty())
 

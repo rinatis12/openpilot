@@ -413,7 +413,8 @@ body.support-terminal-dialog-open .app-toast-host {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
-  padding: var(--sp-sm) var(--terminal-inline);
+  box-sizing: border-box;
+  padding: 0 var(--terminal-inline);
   overflow: hidden;
   background: color-mix(in srgb, var(--md-surface) 92%, #000);
 }
@@ -431,9 +432,20 @@ body.support-terminal-dialog-open .app-toast-host {
 .terminal-xterm .xterm-viewport {
   background-color: transparent !important;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--md-outline) 48%, transparent) transparent;
   /* Let one-finger vertical drags scroll the scrollback on touch devices. */
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
+}
+
+.terminal-xterm .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--md-outline) 42%, transparent);
 }
 
 /* On-screen key bar (Esc/Ctrl/Tab/arrows) for touch devices — horizontally

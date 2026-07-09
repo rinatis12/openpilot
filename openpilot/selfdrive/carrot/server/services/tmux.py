@@ -91,6 +91,10 @@ def ensure_session(session: str = TMUX_WEB_SESSION) -> bool:
   # login shell (see 2nd reference screenshot) instead of a tmux window.
   # Idempotent; only touches this web session, not the "comma" service session.
   run(["tmux", "set-option", "-t", session, "status", "off"], timeout=3.0, check=False)
+  # Legacy tmux-backed terminal/support routes still use tmux capture/send-keys.
+  # Enable mouse so clients that attach to this web session can scroll tmux
+  # history instead of relying on browser scrollback.
+  run(["tmux", "set-option", "-t", session, "mouse", "on"], timeout=3.0, check=False)
   return created
 
 
