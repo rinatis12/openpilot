@@ -29,6 +29,7 @@ SCREEN_POLL_SECONDS = 0.25
 PIN_FAILURE_LIMIT = 5
 PUBLIC_URL_READY_ATTEMPTS = 30
 PUBLIC_URL_READY_DELAY = 1.0
+PUBLIC_URL_START_DELAY = float(os.environ.get("CARROT_SUPPORT_LINK_START_DELAY_SECONDS", "3.0"))
 TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", re.IGNORECASE)
 TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
 
@@ -285,11 +286,11 @@ class SupportTerminalManager:
       session.tunnel_url = self._public_session_url(session.tunnel.url, session.id)
       session.state = "sharing"
       await self._set_status(session, "Secure tunnel ready")
-      await self._set_status(session, "Checking support link")
-      session.link_check = await _wait_public_url_ready(app.get("http"), session.tunnel_url)
+      session.link_check = {"skipped": True, "delay_seconds": PUBLIC_URL_START_DELAY}
+      if PUBLIC_URL_START_DELAY > 0:
+        await asyncio.sleep(PUBLIC_URL_START_DELAY)
       if await self._abort_if_not_current(session):
         return self.snapshot(None)
-      await self._set_status(session, "Support link verified")
       session.screen_task = asyncio.create_task(self._screen_loop(session))
       if session.expires_at > 0:
         session.expiry_task = asyncio.create_task(self._expiry_loop(session))

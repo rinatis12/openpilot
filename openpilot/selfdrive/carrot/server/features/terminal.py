@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 import re
@@ -218,10 +219,13 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
         break
       if not chunk:
         break
+      # Send raw bytes as base64 so the browser terminal emulator decodes UTF-8
+      # itself and multi-byte characters split across 4096-byte reads are not
+      # corrupted (which decode(errors="replace") here would do).
       await ws.send_str(json.dumps({
         "type": "pty_output",
         "session": session,
-        "text": chunk.decode("utf-8", errors="replace"),
+        "b64": base64.b64encode(chunk).decode("ascii"),
       }))
 
   reader_task = asyncio.create_task(read_pty())

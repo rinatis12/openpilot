@@ -34,6 +34,29 @@ const terminalUsePty = true;
 let terminalXterm = null;
 let terminalXtermFit = null;
 let terminalXtermActive = false;
+let terminalCtrlSticky = false;
+
+// Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
+// devices — which have no physical Esc/Ctrl/arrow keys — can still drive
+// interactive programs (vim, btop, less) that the shell input box cannot.
+const TERMINAL_KEY_SEQ = {
+  esc: "\x1b",
+  tab: "\t",
+  up: "\x1b[A",
+  down: "\x1b[B",
+  right: "\x1b[C",
+  left: "\x1b[D",
+};
+
+const terminalTextDecoder = (typeof TextDecoder === "function") ? new TextDecoder("utf-8") : null;
+
+function base64ToBytes(b64) {
+  const bin = atob(String(b64 || ""));
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 function readCssVar(name, fallback) {
   try {
@@ -77,7 +100,7 @@ function ensureTerminalXterm() {
   // Keystrokes typed directly into the grid drive interactive programs.
   term.onData((data) => {
     terminalFollowOutput = true;
-    sendTerminalPacket({ type: "raw", data }, { quiet: true });
+    sendTerminalPacket({ type: "raw", data: applyTerminalCtrl(data) }, { quiet: true });
   });
   term.onResize(({ cols, rows }) => {
     sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true });
@@ -110,6 +133,37 @@ function fitTerminalXterm() {
     terminalXtermFit.fit();
   } catch (e) {
     /* container not laid out yet */
+  }
+}
+
+function setTerminalCtrlSticky(on) {
+  terminalCtrlSticky = !!on;
+  const btn = document.querySelector('.terminal-key[data-key="ctrl"]');
+  if (btn) btn.classList.toggle("is-active", terminalCtrlSticky);
+}
+
+// When the sticky Ctrl key is armed, fold the next single character into its
+// control code (Ctrl-C, Ctrl-D, Ctrl-[, ...), then disarm.
+function applyTerminalCtrl(data) {
+  if (!terminalCtrlSticky || String(data).length !== 1) return data;
+  const code = String(data).toUpperCase().charCodeAt(0);
+  setTerminalCtrlSticky(false);
+  if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+  return data;
+}
+
+function sendTerminalKey(key) {
+  if (key === "ctrl") {
+    setTerminalCtrlSticky(!terminalCtrlSticky);
+    if (terminalXtermActive && terminalXterm) terminalXterm.focus();
+    return;
+  }
+  const seq = TERMINAL_KEY_SEQ[key];
+  if (seq == null) return;
+  terminalFollowOutput = true;
+  const out = applyTerminalCtrl(seq);
+  if (sendTerminalPacket({ type: "raw", data: out }, { quiet: true })) {
+    if (terminalXtermActive && terminalXterm) terminalXterm.focus();
   }
 }
 
@@ -578,8 +632,15 @@ function connectTerminal(force = false) {
     }
 
     if (data.type === "pty_output") {
-      if (terminalXtermActive && terminalXterm) terminalXterm.write(data.text || "");
-      else appendTerminalPtyOutput(data.text || "");
+      const bytes = data.b64 != null ? base64ToBytes(data.b64) : null;
+      if (terminalXtermActive && terminalXterm) {
+        terminalXterm.write(bytes || data.text || "");
+      } else {
+        const text = bytes
+          ? (terminalTextDecoder ? terminalTextDecoder.decode(bytes) : data.text || "")
+          : (data.text || "");
+        appendTerminalPtyOutput(text);
+      }
       if (terminalMetaEl && terminalMetaEl.textContent === getUIText("connecting", "connecting...")) {
         setTerminalMeta(getUIText("connected", "connected"));
       }
@@ -664,6 +725,29 @@ function initTerminalBindings() {
     terminalFollowOutput = isTerminalPinnedToBottom();
     connectTerminal(true);
   });
+
+  // On-screen key bar (Esc/Ctrl/Tab/arrows) for touch devices. mousedown
+  // preventDefault keeps focus on the grid so physical/virtual typing that
+  // follows still lands in the terminal.
+  const terminalKeysEl = document.getElementById("terminalKeys");
+  if (terminalKeysEl && terminalKeysEl.dataset.keysBound !== "1") {
+    terminalKeysEl.dataset.keysBound = "1";
+    terminalKeysEl.querySelectorAll(".terminal-key").forEach((btn) => {
+      btn.addEventListener("mousedown", (ev) => ev.preventDefault());
+      btn.addEventListener("click", () => sendTerminalKey(btn.dataset.key));
+    });
+  }
+
+  // Click anywhere on the grid host focuses the terminal so a physical (PC)
+  // keyboard drives it directly — Esc/Ctrl/arrows are handled natively by xterm.
+  if (terminalXtermEl && terminalXtermEl.dataset.focusBound !== "1") {
+    terminalXtermEl.dataset.focusBound = "1";
+    terminalXtermEl.addEventListener("mousedown", () => {
+      if (terminalXtermActive && terminalXterm) {
+        requestAnimationFrame(() => terminalXterm.focus());
+      }
+    });
+  }
 }
 
 function initTerminalPage() {

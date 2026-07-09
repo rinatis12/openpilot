@@ -432,6 +432,40 @@ body.support-terminal-dialog-open .app-toast-host {
   overscroll-behavior: contain;
 }
 
+/* On-screen key bar (Esc/Ctrl/Tab/arrows) for touch devices — horizontally
+   scrollable so it never wraps or pushes the input form off screen. */
+.terminal-keys {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--sp-sm);
+  align-items: center;
+  margin: 4px var(--terminal-inline) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.terminal-keys::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-key {
+  flex: 0 0 auto;
+  min-width: 42px;
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.terminal-key.is-active {
+  border-color: color-mix(in srgb, var(--md-primary) 60%, var(--md-stroke-soft));
+  color: var(--md-primary);
+  background: color-mix(in srgb, var(--md-primary) 16%, transparent);
+}
+
 .terminal-form {
   flex: 0 0 auto;
   display: grid;
