@@ -17,29 +17,6 @@
   overflow: hidden;
 }
 
-html[data-terminal-active="1"],
-html[data-terminal-active="1"] body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
-html[data-terminal-active="1"] body {
-  position: fixed;
-  inset: 0;
-}
-
-html[data-terminal-active="1"] body > .wrap {
-  position: fixed;
-  inset: 0;
-  width: 100dvw;
-  height: var(--app-vv-height, 100dvh);
-  min-height: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-}
-
 html[data-kb-open="1"] .page--terminal {
   --terminal-bottom-gap: 0px;
   --terminal-controls-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
@@ -48,25 +25,10 @@ html[data-kb-open="1"] .page--terminal {
   z-index: 130;
 }
 
-html[data-terminal-keyboard-active="1"] .page--terminal {
-  --terminal-bottom-gap: 0px;
-  --terminal-controls-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  top: var(--app-vv-top, 0px);
-  height: var(--app-vv-height, 100dvh);
-  z-index: 130;
-}
-
-html[data-vk="1"][data-kb-open="1"] .page--terminal,
-html[data-vk="1"][data-terminal-keyboard-active="1"] .page--terminal {
+html[data-vk="1"][data-kb-open="1"] .page--terminal {
   top: 0;
   width: 100dvw;
   height: var(--app-vv-height, calc(100dvh - var(--kb-inset) - env(safe-area-inset-bottom, 0px)));
-}
-
-html[data-kb-open="1"] body[data-page="terminal"] .topbar,
-html[data-terminal-keyboard-active="1"] body[data-page="terminal"] .topbar {
-  display: none;
-  pointer-events: none;
 }
 
 html[data-kb-open="1"] body[data-page="terminal"] .wrap,

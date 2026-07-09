@@ -118,12 +118,6 @@ function scheduleTerminalKeyboardInactive(delay = 700) {
   }, delay);
 }
 
-function setTerminalActiveRoot(active) {
-  const root = document.documentElement;
-  if (active) root.dataset.terminalActive = "1";
-  else delete root.dataset.terminalActive;
-}
-
 function getTerminalTouchRegion(target) {
   if (!target?.closest) return null;
   if (target.closest(".terminal-keys")) return "keys";
@@ -873,7 +867,6 @@ function initTerminalBindings() {
 
 function initTerminalPage() {
   terminalPageActive = true;
-  setTerminalActiveRoot(true);
   terminalFollowOutput = true;
   terminalCurrentCwd = "/data/openpilot";
   initTerminalBindings();
@@ -888,7 +881,6 @@ function initTerminalPage() {
 
 function teardownTerminalPage() {
   terminalPageActive = false;
-  setTerminalActiveRoot(false);
   window.CarrotSupportTerminal?.teardown?.();
   clearTerminalReconnectTimer();
   closeTerminalSocket();
