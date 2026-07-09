@@ -83,16 +83,26 @@ function terminalXtermSupported() {
     && typeof window.Terminal === "function");
 }
 
-// Auto-size the cell so the fixed 100-column grid fills the available width on
-// any screen (a phone gets a smaller font, a desktop a larger one) instead of a
-// fixed font that is either too small or overflows. Monospace advance is
-// ~0.6em; clamped so it stays legible — on very narrow phones it floors and the
-// container pans horizontally (.terminal-xterm overflow-x/touch pan-x).
+// Scale the font so the fixed 100-column grid fills the width on any screen
+// (a phone gets a smaller font, a desktop a larger one). Uses xterm's own cell
+// measurement (FitAddon) instead of an estimated advance ratio: columns are
+// inversely proportional to font size, so one linear step lands on 100 cols.
+// Clamped so it stays legible — a very narrow phone floors and the container
+// pans horizontally (.terminal-xterm overflow-x / touch pan-x).
 function terminalFontSize() {
-  const host = terminalXtermEl;
-  const w = (host && host.clientWidth) || window.innerWidth || 800;
-  const size = Math.floor((w - 24) / (TERMINAL_GRID_COLS * 0.6));
-  return Math.max(8, Math.min(size, 16));
+  try {
+    const host = terminalXtermEl;
+    const w = (host && host.clientWidth) || window.innerWidth || 800;
+    const current = (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize) || 13;
+    const cell = terminalCellSize();
+    if (cell.w > 0) {
+      const font = current * ((w - 16) / (TERMINAL_GRID_COLS * cell.w));
+      return Math.max(8, Math.min(Math.round(font), 18));
+    }
+  } catch (e) {
+    /* not laid out yet */
+  }
+  return 13;
 }
 
 function ensureTerminalXterm() {
@@ -159,10 +169,30 @@ function activateTerminalXterm() {
   }
   terminalXtermActive = true;
   fitTerminalXterm();
-  // Container may still be settling right after the page is shown; fit again on
-  // the next couple of frames so the grid fills the whole area, not a small box.
+  // Container may still be settling right after the page is shown, and xterm's
+  // renderer measures the cell a frame or two after open; re-fit on the next
+  // frames and once more slightly later so the grid fills the whole area.
   requestAnimationFrame(() => requestAnimationFrame(() => fitTerminalXterm()));
+  setTimeout(() => fitTerminalXterm(), 180);
   return true;
+}
+
+// Actual rendered cell size in CSS px (xterm 5.x renderService), with a font
+// estimate fallback. Used to size the grid off the container directly, which is
+// more reliable than FitAddon.proposeDimensions (which returns undefined until
+// the renderer has measured the font and left the grid stuck at 30 rows → the
+// empty band below the terminal).
+function terminalCellSize() {
+  try {
+    const d = terminalXterm && terminalXterm._core && terminalXterm._core._renderService
+      && terminalXterm._core._renderService.dimensions;
+    const cell = d && d.css && d.css.cell;
+    if (cell && cell.width > 0 && cell.height > 0) return { w: cell.width, h: cell.height };
+  } catch (e) {
+    /* internal API unavailable */
+  }
+  const fs = (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize) || 13;
+  return { w: fs * 0.6, h: Math.round(fs * 1.32) };
 }
 
 function terminalGridRows() {
@@ -170,8 +200,10 @@ function terminalGridRows() {
   // makes the shared view "the same"); rows follow the container height so the
   // grid fills the screen instead of leaving an empty band below it.
   try {
-    const dims = terminalXtermFit && terminalXtermFit.proposeDimensions && terminalXtermFit.proposeDimensions();
-    if (dims && dims.rows) return Math.max(TERMINAL_GRID_ROWS, dims.rows | 0);
+    const host = terminalXtermEl;
+    const h = host && host.clientHeight;
+    const cell = terminalCellSize();
+    if (h > 0 && cell.h > 0) return Math.max(6, Math.floor(h / cell.h));
   } catch (e) {
     /* not laid out yet */
   }
