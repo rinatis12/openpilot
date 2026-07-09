@@ -39,7 +39,7 @@
     if (state.initialized) return;
     state.initialized = true;
     els.open = $("btnSupportTerminalOpen");
-    els.form = $("terminalForm");
+    els.approvalHost = $("supportTerminalApprovalHost");
     if (els.open) els.open.addEventListener("click", openSupportDialog);
     ensureApprovalHost();
   }
@@ -390,13 +390,8 @@
 
   function ensureApprovalHost() {
     if (els.approvalHost && document.body.contains(els.approvalHost)) return els.approvalHost;
-    const form = els.form || $("terminalForm");
-    if (!form || !form.parentNode) return null;
-    const host = document.createElement("div");
-    host.id = "supportTerminalApprovalHost";
-    host.className = "terminal-approval-host";
-    host.hidden = true;
-    form.parentNode.insertBefore(host, form);
+    const host = $("supportTerminalApprovalHost");
+    if (!host) return null;
     els.approvalHost = host;
     return host;
   }

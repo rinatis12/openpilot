@@ -37,9 +37,8 @@ let terminalXtermResizeObserver = null;
 let terminalXtermFitRaf = 0;
 let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
-let terminalKeyboardStateTimer = 0;
 let terminalKeysTouchStart = null;
-let terminalTouchStart = null;
+let terminalLastSizeKey = "";
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -85,94 +84,6 @@ function terminalXtermSupported() {
     && typeof window.FitAddon.FitAddon === "function");
 }
 
-function terminalUsesTouchKeyboard() {
-  if (typeof window.matchMedia === "function") {
-    try {
-      if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return true;
-    } catch (e) {}
-  }
-  return (window.innerWidth || 0) <= 640;
-}
-
-function setTerminalKeyboardActive(active) {
-  if (terminalKeyboardStateTimer) {
-    clearTimeout(terminalKeyboardStateTimer);
-    terminalKeyboardStateTimer = 0;
-  }
-  const root = document.documentElement;
-  if (active && terminalPageActive && terminalUsesTouchKeyboard()) {
-    root.dataset.terminalKeyboardActive = "1";
-  } else {
-    delete root.dataset.terminalKeyboardActive;
-  }
-  if (typeof updateAppViewportMetrics === "function") updateAppViewportMetrics();
-}
-
-function scheduleTerminalKeyboardInactive(delay = 700) {
-  if (terminalKeyboardStateTimer) clearTimeout(terminalKeyboardStateTimer);
-  terminalKeyboardStateTimer = window.setTimeout(() => {
-    terminalKeyboardStateTimer = 0;
-    if (document.documentElement.dataset.kbOpen !== "1") {
-      setTerminalKeyboardActive(false);
-    }
-  }, delay);
-}
-
-function getTerminalTouchRegion(target) {
-  if (!target?.closest) return null;
-  if (target.closest(".terminal-keys")) return "keys";
-  if (target.closest(".terminal-xterm")) return "xterm";
-  if (target.closest(".terminal-screen")) return "screen";
-  return null;
-}
-
-function scrollTerminalTouchRegion(region, dy) {
-  if (region === "xterm") {
-    const viewport = terminalXtermEl?.querySelector?.(".xterm-viewport");
-    if (viewport) viewport.scrollTop += dy;
-    return true;
-  }
-  if (region === "screen" && terminalScreenEl) {
-    terminalScreenEl.scrollTop += dy;
-    return true;
-  }
-  return false;
-}
-
-function bindTerminalTouchContainment() {
-  if (!terminalPageEl || terminalPageEl.dataset.touchContainmentBound === "1") return;
-  terminalPageEl.dataset.touchContainmentBound = "1";
-  terminalPageEl.addEventListener("touchstart", (ev) => {
-    const touch = ev.touches && ev.touches[0];
-    terminalTouchStart = touch
-      ? { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, target: ev.target, region: getTerminalTouchRegion(ev.target) }
-      : null;
-  }, { passive: true });
-  terminalPageEl.addEventListener("touchmove", (ev) => {
-    if (!terminalPageActive || !terminalTouchStart) return;
-    const touch = ev.touches && ev.touches[0];
-    if (!touch) return;
-    const dx = touch.clientX - terminalTouchStart.x;
-    const dy = touch.clientY - terminalTouchStart.y;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    if (terminalTouchStart.region === "keys" && absDx > absDy) return;
-    if ((terminalTouchStart.region === "xterm" || terminalTouchStart.region === "screen") && absDy >= absDx) {
-      scrollTerminalTouchRegion(terminalTouchStart.region, terminalTouchStart.lastY - touch.clientY);
-      terminalTouchStart.lastY = touch.clientY;
-      ev.preventDefault();
-      return;
-    }
-    ev.preventDefault();
-  }, { passive: false });
-  terminalPageEl.addEventListener("touchend", () => {
-    terminalTouchStart = null;
-  }, { passive: true });
-  terminalPageEl.addEventListener("touchcancel", () => {
-    terminalTouchStart = null;
-  }, { passive: true });
-}
-
 // Smaller cell on narrow screens so more columns fit. Terminals wrap at the
 // column width (they don't scroll horizontally), so more columns = less
 // wrapping / less truncation of wide output on phones.
@@ -209,18 +120,16 @@ function ensureTerminalXterm() {
   // Keystrokes typed directly into the grid drive interactive programs.
   term.onData((data) => {
     terminalFollowOutput = true;
-    setTerminalKeyboardActive(true);
     sendTerminalPacket({ type: "raw", data: applyTerminalCtrl(data) }, { quiet: true });
   });
   term.onResize(({ cols, rows }) => {
-    sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true });
+    if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
+    const key = `${cols | 0}x${rows | 0}`;
+    if (key === terminalLastSizeKey) return;
+    if (sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true })) {
+      terminalLastSizeKey = key;
+    }
   });
-  if (typeof term.onFocus === "function") {
-    term.onFocus(() => setTerminalKeyboardActive(true));
-  }
-  if (typeof term.onBlur === "function") {
-    term.onBlur(() => scheduleTerminalKeyboardInactive());
-  }
   terminalXterm = term;
   terminalXtermFit = fit;
   // Re-fit whenever the host actually gets/changes size. This fixes the grid
@@ -310,7 +219,10 @@ function currentTerminalSize() {
     try {
       const dims = terminalXtermFit.proposeDimensions();
       if (dims && dims.cols && dims.rows) {
-        return { cols: Math.max(20, dims.cols | 0), rows: Math.max(6, dims.rows | 0) };
+        return {
+          cols: Math.max(20, dims.cols | 0),
+          rows: Math.max(6, dims.rows | 0),
+        };
       }
     } catch (e) {
       /* fall through to estimate */
@@ -574,11 +486,11 @@ function bindTerminalLayoutObservers() {
       if (!terminalXtermActive && terminalFollowOutput) pinTerminalToBottom();
     });
   };
-  const handleResizeLayout = () => handleLayout({ resizeTerminal: true });
+  const handleResizeLayout = () => {
+    handleLayout({ resizeTerminal: true });
+  };
   const handleViewportScroll = () => {
-    if (document.body?.dataset?.page === "terminal" &&
-        (document.documentElement.dataset.kbOpen === "1" ||
-         document.documentElement.dataset.terminalKeyboardActive === "1")) {
+    if (document.body?.dataset?.page === "terminal" && document.documentElement.dataset.kbOpen === "1") {
       updateTerminalToastAnchor();
       return;
     }
@@ -597,9 +509,6 @@ function bindTerminalLayoutObservers() {
   if (navigator.virtualKeyboard) {
     navigator.virtualKeyboard.addEventListener("geometrychange", handleResizeLayout, { passive: true });
   }
-  document.addEventListener("focusout", () => {
-    if (document.body?.dataset?.page === "terminal") scheduleTerminalKeyboardInactive();
-  }, { passive: true });
 }
 
 function refreshTerminalLayout() {
@@ -656,7 +565,12 @@ function sendTerminalResize() {
   // the explicit send below also covers the first, unchanged measurement.
   if (terminalXtermActive) fitTerminalXterm();
   if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-  sendTerminalPacket({ type: "resize", ...currentTerminalSize() }, { quiet: true });
+  const size = currentTerminalSize();
+  const key = `${size.cols}x${size.rows}`;
+  if (key === terminalLastSizeKey) return;
+  if (sendTerminalPacket({ type: "resize", ...size }, { quiet: true })) {
+    terminalLastSizeKey = key;
+  }
 }
 
 function scheduleTerminalReconnect(delay = 1200) {
@@ -793,7 +707,6 @@ function initTerminalBindings() {
   };
 
   bindTerminalLayoutObservers();
-  bindTerminalTouchContainment();
 
   bindNodeOnce(terminalScreenEl, "scrollBound", () => {
     terminalFollowOutput = isTerminalPinnedToBottom();
@@ -825,7 +738,6 @@ function initTerminalBindings() {
     terminalKeysEl.addEventListener("touchstart", (ev) => {
       const touch = ev.touches && ev.touches[0];
       terminalKeysTouchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
-      setTerminalKeyboardActive(true);
     }, { passive: true });
     terminalKeysEl.addEventListener("touchmove", (ev) => {
       if (!terminalKeysTouchStart) return;
@@ -843,11 +755,7 @@ function initTerminalBindings() {
     }, { passive: true });
     terminalKeysEl.querySelectorAll(".terminal-key").forEach((btn) => {
       btn.addEventListener("mousedown", (ev) => ev.preventDefault());
-      btn.addEventListener("touchstart", () => setTerminalKeyboardActive(true), { passive: true });
-      btn.addEventListener("click", () => {
-        setTerminalKeyboardActive(true);
-        sendTerminalKey(btn.dataset.key);
-      });
+      btn.addEventListener("click", () => sendTerminalKey(btn.dataset.key));
     });
   }
 
@@ -856,12 +764,10 @@ function initTerminalBindings() {
   if (terminalXtermEl && terminalXtermEl.dataset.focusBound !== "1") {
     terminalXtermEl.dataset.focusBound = "1";
     terminalXtermEl.addEventListener("mousedown", () => {
-      setTerminalKeyboardActive(true);
       if (terminalXtermActive && terminalXterm) {
         requestAnimationFrame(() => terminalXterm.focus());
       }
     });
-    terminalXtermEl.addEventListener("touchstart", () => setTerminalKeyboardActive(true), { passive: true });
   }
 }
 
@@ -891,7 +797,5 @@ function teardownTerminalPage() {
   document.documentElement.style.removeProperty("--terminal-toast-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");
-  setTerminalKeyboardActive(false);
-  terminalTouchStart = null;
   terminalKeysTouchStart = null;
 }

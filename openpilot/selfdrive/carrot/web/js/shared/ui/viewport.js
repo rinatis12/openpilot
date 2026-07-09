@@ -94,13 +94,8 @@ function updateAppViewportMetrics() {
   if (keyboardOpen) document.documentElement.dataset.kbOpen = "1";
   else delete document.documentElement.dataset.kbOpen;
 
-  const terminalKeyboardMode = document.body?.dataset?.page === "terminal" &&
-    (keyboardOpen || document.documentElement.dataset.terminalKeyboardActive === "1");
-  const terminalKeyboardHeight = appVirtualKeyboard
-    ? Math.max(320, Math.round((window.innerHeight || rawHeight) - keyboardHeight))
-    : rawHeight;
-  const height = terminalKeyboardMode ? terminalKeyboardHeight : rawHeight;
-  const top = terminalKeyboardMode ? 0 : rawTop;
+  const height = rawHeight;
+  const top = rawTop;
   const width = rawWidth;
   document.documentElement.style.setProperty("--app-vv-height", `${height}px`);
   document.documentElement.style.setProperty("--app-vv-top", `${top}px`);
@@ -109,7 +104,7 @@ function updateAppViewportMetrics() {
   const topbarEl = document.querySelector(".topbar");
   let navLeftGap = 0;
   let navBottomGap = 0;
-  if (topbarEl && !terminalKeyboardMode) {
+  if (topbarEl) {
     const styles = window.getComputedStyle(topbarEl);
     if (styles.display !== "none" && styles.visibility !== "hidden") {
       const rect = topbarEl.getBoundingClientRect();
