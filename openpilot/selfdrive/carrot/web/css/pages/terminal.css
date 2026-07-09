@@ -421,8 +421,9 @@ body.support-terminal-dialog-open .app-toast-host {
   padding: 0 var(--terminal-inline);
   overflow: auto hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--md-outline) 48%, transparent) transparent;
+  /* Keep the grid horizontally pannable but hide the persistent scrollbar — it
+     stayed visible whenever the 100-col grid was wider than the screen. */
+  scrollbar-width: none;
   touch-action: pan-x pan-y;
   background: color-mix(in srgb, var(--md-surface) 92%, #000);
 }
@@ -448,12 +449,7 @@ body.support-terminal-dialog-open .app-toast-host {
 }
 
 .terminal-xterm::-webkit-scrollbar {
-  height: 8px;
-}
-
-.terminal-xterm::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--md-outline) 42%, transparent);
+  display: none;
 }
 
 .terminal-xterm .xterm-viewport::-webkit-scrollbar {

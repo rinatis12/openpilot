@@ -89,19 +89,13 @@ function terminalXtermSupported() {
 // inversely proportional to font size, so one linear step lands on 100 cols.
 // Clamped so it stays legible — a very narrow phone floors and the container
 // pans horizontally (.terminal-xterm overflow-x / touch pan-x).
+// Fixed, readable cell size (auto-scaling to fill the width made it too small).
+// The 100-column grid keeps a consistent wrap width; when it is wider than a
+// narrow screen the container pans horizontally instead of shrinking the text.
 function terminalFontSize() {
-  try {
-    const host = terminalXtermEl;
-    const w = (host && host.clientWidth) || window.innerWidth || 800;
-    const current = (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize) || 13;
-    const cell = terminalCellSize();
-    if (cell.w > 0) {
-      const font = current * ((w - 16) / (TERMINAL_GRID_COLS * cell.w));
-      return Math.max(8, Math.min(Math.round(font), 18));
-    }
-  } catch (e) {
-    /* not laid out yet */
-  }
+  const w = window.innerWidth || 800;
+  if (w <= 380) return 11;
+  if (w <= 640) return 12;
   return 13;
 }
 
