@@ -38,6 +38,8 @@ let terminalXtermFitRaf = 0;
 let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
 let terminalKeyboardStateTimer = 0;
+let terminalKeysTouchStart = null;
+let terminalTouchStart = null;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -114,6 +116,67 @@ function scheduleTerminalKeyboardInactive(delay = 700) {
       setTerminalKeyboardActive(false);
     }
   }, delay);
+}
+
+function setTerminalActiveRoot(active) {
+  const root = document.documentElement;
+  if (active) root.dataset.terminalActive = "1";
+  else delete root.dataset.terminalActive;
+}
+
+function getTerminalTouchRegion(target) {
+  if (!target?.closest) return null;
+  if (target.closest(".terminal-keys")) return "keys";
+  if (target.closest(".terminal-xterm")) return "xterm";
+  if (target.closest(".terminal-screen")) return "screen";
+  return null;
+}
+
+function scrollTerminalTouchRegion(region, dy) {
+  if (region === "xterm") {
+    const viewport = terminalXtermEl?.querySelector?.(".xterm-viewport");
+    if (viewport) viewport.scrollTop += dy;
+    return true;
+  }
+  if (region === "screen" && terminalScreenEl) {
+    terminalScreenEl.scrollTop += dy;
+    return true;
+  }
+  return false;
+}
+
+function bindTerminalTouchContainment() {
+  if (!terminalPageEl || terminalPageEl.dataset.touchContainmentBound === "1") return;
+  terminalPageEl.dataset.touchContainmentBound = "1";
+  terminalPageEl.addEventListener("touchstart", (ev) => {
+    const touch = ev.touches && ev.touches[0];
+    terminalTouchStart = touch
+      ? { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, target: ev.target, region: getTerminalTouchRegion(ev.target) }
+      : null;
+  }, { passive: true });
+  terminalPageEl.addEventListener("touchmove", (ev) => {
+    if (!terminalPageActive || !terminalTouchStart) return;
+    const touch = ev.touches && ev.touches[0];
+    if (!touch) return;
+    const dx = touch.clientX - terminalTouchStart.x;
+    const dy = touch.clientY - terminalTouchStart.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    if (terminalTouchStart.region === "keys" && absDx > absDy) return;
+    if ((terminalTouchStart.region === "xterm" || terminalTouchStart.region === "screen") && absDy >= absDx) {
+      scrollTerminalTouchRegion(terminalTouchStart.region, terminalTouchStart.lastY - touch.clientY);
+      terminalTouchStart.lastY = touch.clientY;
+      ev.preventDefault();
+      return;
+    }
+    ev.preventDefault();
+  }, { passive: false });
+  terminalPageEl.addEventListener("touchend", () => {
+    terminalTouchStart = null;
+  }, { passive: true });
+  terminalPageEl.addEventListener("touchcancel", () => {
+    terminalTouchStart = null;
+  }, { passive: true });
 }
 
 // Smaller cell on narrow screens so more columns fit. Terminals wrap at the
@@ -736,6 +799,7 @@ function initTerminalBindings() {
   };
 
   bindTerminalLayoutObservers();
+  bindTerminalTouchContainment();
 
   bindNodeOnce(terminalScreenEl, "scrollBound", () => {
     terminalFollowOutput = isTerminalPinnedToBottom();
@@ -764,6 +828,25 @@ function initTerminalBindings() {
   // follows still lands in the terminal.
   if (terminalKeysEl && terminalKeysEl.dataset.keysBound !== "1") {
     terminalKeysEl.dataset.keysBound = "1";
+    terminalKeysEl.addEventListener("touchstart", (ev) => {
+      const touch = ev.touches && ev.touches[0];
+      terminalKeysTouchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
+      setTerminalKeyboardActive(true);
+    }, { passive: true });
+    terminalKeysEl.addEventListener("touchmove", (ev) => {
+      if (!terminalKeysTouchStart) return;
+      const touch = ev.touches && ev.touches[0];
+      if (!touch) return;
+      const dx = Math.abs(touch.clientX - terminalKeysTouchStart.x);
+      const dy = Math.abs(touch.clientY - terminalKeysTouchStart.y);
+      if (dy > dx + 4) ev.preventDefault();
+    }, { passive: false });
+    terminalKeysEl.addEventListener("touchend", () => {
+      terminalKeysTouchStart = null;
+    }, { passive: true });
+    terminalKeysEl.addEventListener("touchcancel", () => {
+      terminalKeysTouchStart = null;
+    }, { passive: true });
     terminalKeysEl.querySelectorAll(".terminal-key").forEach((btn) => {
       btn.addEventListener("mousedown", (ev) => ev.preventDefault());
       btn.addEventListener("touchstart", () => setTerminalKeyboardActive(true), { passive: true });
@@ -790,6 +873,7 @@ function initTerminalBindings() {
 
 function initTerminalPage() {
   terminalPageActive = true;
+  setTerminalActiveRoot(true);
   terminalFollowOutput = true;
   terminalCurrentCwd = "/data/openpilot";
   initTerminalBindings();
@@ -804,6 +888,7 @@ function initTerminalPage() {
 
 function teardownTerminalPage() {
   terminalPageActive = false;
+  setTerminalActiveRoot(false);
   window.CarrotSupportTerminal?.teardown?.();
   clearTerminalReconnectTimer();
   closeTerminalSocket();
@@ -815,4 +900,6 @@ function teardownTerminalPage() {
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");
   setTerminalKeyboardActive(false);
+  terminalTouchStart = null;
+  terminalKeysTouchStart = null;
 }
