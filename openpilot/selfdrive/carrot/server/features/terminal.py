@@ -27,6 +27,8 @@ except Exception:
 TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", re.IGNORECASE)
 TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
 PTY_HISTORY_LIMIT = 512 * 1024
+PTY_FIXED_COLS = 100
+PTY_FIXED_ROWS = 30
 
 
 def _translate_terminal_line(line: str, *, nested_tmux: bool = False) -> str:
@@ -69,8 +71,8 @@ class PersistentPtySession:
     self.clients: set[web.WebSocketResponse] = set()
     self.primary_client: web.WebSocketResponse | None = None
     self.history = bytearray()
-    self.rows = 28
-    self.cols = 100
+    self.rows = PTY_FIXED_ROWS
+    self.cols = PTY_FIXED_COLS
     self.lock = asyncio.Lock()
 
   def _alive_locked(self) -> bool:
@@ -98,8 +100,8 @@ class PersistentPtySession:
       if self._alive_locked():
         return False
 
-      self.rows = max(8, min(int(rows or self.rows), 200))
-      self.cols = max(20, min(int(cols or self.cols), 400))
+      self.rows = PTY_FIXED_ROWS
+      self.cols = PTY_FIXED_COLS
 
       self._close_fds_locked()
       self.history.clear()
@@ -146,24 +148,10 @@ class PersistentPtySession:
       self.clients.add(ws)
       if self.primary_client is None or self.primary_client.closed or self.primary_client not in self.clients:
         self.primary_client = ws
-        if self._alive_locked():
-          self.rows = max(8, min(int(rows or self.rows), 200))
-          self.cols = max(20, min(int(cols or self.cols), 400))
-          _set_pty_size(self.master_fd, self.rows, self.cols)
-          proc = self.proc
-        else:
-          proc = None
-      else:
-        proc = None
       history = bytes(self.history)
       snapshot = self._snapshot_locked()
       session = snapshot["session"]
       is_primary = ws is self.primary_client
-    if proc and proc.poll() is None:
-      try:
-        os.killpg(proc.pid, signal.SIGWINCH)
-      except Exception:
-        pass
     await ws.send_str(json.dumps({
       "type": "meta",
       "mode": "pty",
@@ -208,23 +196,10 @@ class PersistentPtySession:
       self.history.clear()
 
   async def resize(self, ws: web.WebSocketResponse, rows: int, cols: int) -> None:
-    async with self.lock:
-      if ws is not self.primary_client:
-        return
-      self.rows = max(8, min(int(rows or self.rows), 200))
-      self.cols = max(20, min(int(cols or self.cols), 400))
-      if not self._alive_locked():
-        return
-      fd = self.master_fd
-      proc = self.proc
-      rows = self.rows
-      cols = self.cols
-    _set_pty_size(fd, rows, cols)
-    if proc and proc.poll() is None:
-      try:
-        os.killpg(proc.pid, signal.SIGWINCH)
-      except Exception:
-        pass
+    # Shared terminal sessions must keep one stable grid. Browser viewport
+    # changes are handled client-side by font size and scrolling; resizing the
+    # PTY would make every other viewer reflow or lose the same-screen view.
+    return
 
   def _append_history(self, chunk: bytes) -> None:
     self.history.extend(chunk)

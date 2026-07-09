@@ -31,7 +31,6 @@ const terminalUsePty = true;
 // nested tmux) render correctly instead of the naive append-only fallback.
 // Falls back to the legacy <pre> renderer if xterm.js failed to load.
 let terminalXterm = null;
-let terminalXtermFit = null;
 let terminalXtermActive = false;
 let terminalXtermResizeObserver = null;
 let terminalXtermFitRaf = 0;
@@ -39,6 +38,8 @@ let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
 let terminalKeysTouchStart = null;
 let terminalLastSizeKey = "";
+const TERMINAL_GRID_COLS = 100;
+const TERMINAL_GRID_ROWS = 30;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -79,9 +80,7 @@ function readCssVar(name, fallback) {
 
 function terminalXtermSupported() {
   return !!(terminalXtermEl
-    && typeof window.Terminal === "function"
-    && window.FitAddon
-    && typeof window.FitAddon.FitAddon === "function");
+    && typeof window.Terminal === "function");
 }
 
 // Smaller cell on narrow screens so more columns fit. Terminals wrap at the
@@ -114,8 +113,6 @@ function ensureTerminalXterm() {
       selectionBackground: "rgba(120,160,255,0.35)",
     },
   });
-  const fit = new window.FitAddon.FitAddon();
-  term.loadAddon(fit);
   term.open(terminalXtermEl);
   // Keystrokes typed directly into the grid drive interactive programs.
   term.onData((data) => {
@@ -123,18 +120,11 @@ function ensureTerminalXterm() {
     sendTerminalPacket({ type: "raw", data: applyTerminalCtrl(data) }, { quiet: true });
   });
   term.onResize(({ cols, rows }) => {
-    if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-    const key = `${cols | 0}x${rows | 0}`;
-    if (key === terminalLastSizeKey) return;
-    if (sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true })) {
-      terminalLastSizeKey = key;
-    }
+    terminalLastSizeKey = `${cols | 0}x${rows | 0}`;
   });
   terminalXterm = term;
-  terminalXtermFit = fit;
-  // Re-fit whenever the host actually gets/changes size. This fixes the grid
-  // opening as a tiny top-left box when the container is not laid out yet at
-  // open time (page just shown / reconnect), without relying on fit timing.
+  // Re-sync whenever the host actually gets/changes size. The PTY grid stays
+  // fixed; viewport changes only adjust local font metrics and scroll space.
   if (typeof ResizeObserver === "function" && !terminalXtermResizeObserver) {
     terminalXtermResizeObserver = new ResizeObserver(() => {
       if (terminalPageActive) refreshTerminalLayout();
@@ -174,13 +164,17 @@ function activateTerminalXterm() {
 }
 
 function fitTerminalXterm() {
-  if (!terminalXtermActive || !terminalXtermFit) return;
+  if (!terminalXtermActive || !terminalXterm) return;
   try {
     const fs = terminalFontSize();
     if (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize !== fs) {
       terminalXterm.options.fontSize = fs;
     }
-    terminalXtermFit.fit();
+    if (terminalXterm.cols !== TERMINAL_GRID_COLS || terminalXterm.rows !== TERMINAL_GRID_ROWS) {
+      terminalXterm.resize(TERMINAL_GRID_COLS, TERMINAL_GRID_ROWS);
+    } else {
+      terminalXterm.refresh(0, TERMINAL_GRID_ROWS - 1);
+    }
   } catch (e) {
     /* container not laid out yet */
   }
@@ -218,26 +212,7 @@ function sendTerminalKey(key) {
 }
 
 function currentTerminalSize() {
-  if (terminalXtermActive && terminalXterm) {
-    return {
-      cols: Math.max(20, terminalXterm.cols | 0),
-      rows: Math.max(6, terminalXterm.rows | 0),
-    };
-  }
-  if (terminalXtermActive && terminalXtermFit && terminalXtermFit.proposeDimensions) {
-    try {
-      const dims = terminalXtermFit.proposeDimensions();
-      if (dims && dims.cols && dims.rows) {
-        return {
-          cols: Math.max(20, dims.cols | 0),
-          rows: Math.max(6, dims.rows | 0),
-        };
-      }
-    } catch (e) {
-      /* fall through to estimate */
-    }
-  }
-  return estimateTerminalSize();
+  return { cols: TERMINAL_GRID_COLS, rows: TERMINAL_GRID_ROWS };
 }
 
 function setTerminalMeta(text) {
@@ -567,29 +542,8 @@ function getTerminalWsUrl() {
   return `${proto}://${location.host}${path}?${params.toString()}`;
 }
 
-function estimateTerminalSize() {
-  const rect = terminalScreenEl?.getBoundingClientRect?.();
-  const style = terminalOutputEl ? getComputedStyle(terminalOutputEl) : null;
-  const fontSize = Number.parseFloat(style?.fontSize || "13") || 13;
-  const lineHeight = Number.parseFloat(style?.lineHeight || "") || (fontSize * 1.45);
-  const charWidth = Math.max(6, fontSize * 0.62);
-  return {
-    cols: Math.max(40, Math.floor(((rect?.width || 800) - 24) / charWidth)),
-    rows: Math.max(12, Math.floor(((rect?.height || 420) - 12) / lineHeight)),
-  };
-}
-
 function sendTerminalResize() {
-  // fit() emits onResize (which sends) when the geometry actually changes;
-  // the explicit send below also covers the first, unchanged measurement.
   if (terminalXtermActive) fitTerminalXterm();
-  if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-  const size = currentTerminalSize();
-  const key = `${size.cols}x${size.rows}`;
-  if (key === terminalLastSizeKey) return;
-  if (sendTerminalPacket({ type: "resize", ...size }, { quiet: true })) {
-    terminalLastSizeKey = key;
-  }
 }
 
 function scheduleTerminalReconnect(delay = 1200) {
@@ -669,7 +623,6 @@ function connectTerminal(force = false) {
         fitTerminalXterm();
         terminalXterm.focus();
       }
-      sendTerminalResize();
       return;
     }
 
