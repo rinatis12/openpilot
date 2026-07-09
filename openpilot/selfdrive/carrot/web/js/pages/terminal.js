@@ -225,6 +225,35 @@ function terminalGridRows() {
   return TERMINAL_GRID_ROWS;
 }
 
+// TEMP on-screen diagnostic for the mobile empty-band bug. Shows the numbers
+// that drive row sizing so the exact wrong value is visible in a screenshot.
+function updateTerminalSizeDebug(computedRows) {
+  try {
+    let dbg = document.getElementById("terminalSizeDebug");
+    if (!dbg) {
+      dbg = document.createElement("div");
+      dbg.id = "terminalSizeDebug";
+      dbg.style.cssText = "position:fixed;top:0;left:0;z-index:99999;background:rgba(0,0,0,.78);"
+        + "color:#7dff7d;font:10px/1.3 monospace;padding:2px 5px;pointer-events:none;white-space:pre;max-width:100vw;";
+      document.body.appendChild(dbg);
+    }
+    const host = terminalXtermEl;
+    const ch = host ? Math.round(host.getBoundingClientRect().height) : 0;
+    const screen = host && host.querySelector(".xterm-screen");
+    const sh = screen ? Math.round(screen.getBoundingClientRect().height) : 0;
+    const cur = (terminalXterm && terminalXterm.rows) || 0;
+    const cellH = (sh > 0 && cur > 0) ? (sh / cur).toFixed(1) : "?";
+    const cs = getComputedStyle(document.documentElement);
+    const vv = window.visualViewport;
+    dbg.textContent = `dpr${window.devicePixelRatio} contH${ch} scrH${sh} cell${cellH} `
+      + `cur${cur} calc${computedRows} vvH${vv ? Math.round(vv.height) : 0} `
+      + `kb${(cs.getPropertyValue("--kb-inset") || "").trim()} appvv${(cs.getPropertyValue("--app-vv-height") || "").trim()} `
+      + `kbOpen${document.documentElement.dataset.kbOpen || "0"} sam${document.documentElement.dataset.samsungBrowser || "0"}`;
+  } catch (e) {
+    /* ignore */
+  }
+}
+
 function fitTerminalXterm() {
   if (!terminalXtermActive || !terminalXterm) return;
   try {
@@ -233,6 +262,7 @@ function fitTerminalXterm() {
       terminalXterm.options.fontSize = fs;
     }
     const rows = terminalGridRows();
+    updateTerminalSizeDebug(rows);
     if (terminalXterm.cols !== TERMINAL_GRID_COLS || terminalXterm.rows !== rows) {
       terminalXterm.resize(TERMINAL_GRID_COLS, rows);
       // Tell the shared PTY the new row count (columns stay locked at 100) so
