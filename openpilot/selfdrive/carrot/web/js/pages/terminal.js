@@ -8,8 +8,7 @@ const terminalSessionMetaEl = document.getElementById("terminalSessionMeta");
 const terminalPageEl = document.getElementById("pageTerminal");
 const terminalScreenEl = document.getElementById("terminalScreen");
 const terminalOutputEl = document.getElementById("terminalOutput");
-const terminalFormEl = document.getElementById("terminalForm");
-const terminalInputEl = document.getElementById("terminalInput");
+const terminalKeysEl = document.getElementById("terminalKeys");
 const btnTerminalCtrlCEl = document.getElementById("btnTerminalCtrlC");
 const btnTerminalClearEl = document.getElementById("btnTerminalClear");
 const btnTerminalReconnectEl = document.getElementById("btnTerminalReconnect");
@@ -44,6 +43,12 @@ let terminalCtrlSticky = false;
 const TERMINAL_KEY_SEQ = {
   esc: "\x1b",
   tab: "\t",
+  ctrl_c: "\x03",
+  ctrl_d: "\x04",
+  home: "\x1b[H",
+  end: "\x1b[F",
+  page_up: "\x1b[5~",
+  page_down: "\x1b[6~",
   up: "\x1b[A",
   down: "\x1b[B",
   right: "\x1b[C",
@@ -418,26 +423,6 @@ function setTerminalScreen(text, forceStick = false) {
   });
 }
 
-function runTerminalLocalAlias(line) {
-  const key = String.fromCharCode(119, 104, 101, 114, 101, 105, 115, 109, 121, 99, 97, 114, 114, 111, 116);
-  if (String(line || "").trim().toLowerCase() !== key) return false;
-
-  const msg = String.fromCharCode(45817, 44540, 33, 33);
-  const evt = String.fromCharCode(99, 97, 114, 114, 111, 116, 58, 114, 117, 110, 58, 52, 48, 52);
-  const base = terminalLastScreen && terminalLastScreen.trim()
-    ? `${terminalLastScreen.replace(/\s+$/g, "")}\n`
-    : "";
-  terminalFollowOutput = true;
-  setTerminalScreen(`${base}${msg}`, true);
-
-  window.dispatchEvent(new CustomEvent(evt, {
-    detail: { [String.fromCharCode(113)]: 1 },
-  }));
-
-  if (terminalInputEl) terminalInputEl.value = "";
-  return true;
-}
-
 function clearTerminalReconnectTimer() {
   if (terminalReconnectTimer) {
     clearTimeout(terminalReconnectTimer);
@@ -446,14 +431,15 @@ function clearTerminalReconnectTimer() {
 }
 
 function updateTerminalToastAnchor() {
-  if (!terminalFormEl || document.body?.dataset?.page !== "terminal") {
+  const anchorEl = terminalKeysEl;
+  if (!anchorEl || document.body?.dataset?.page !== "terminal") {
     document.documentElement.style.removeProperty("--terminal-toast-bottom");
     document.documentElement.style.removeProperty("--terminal-toast-left");
     document.documentElement.style.removeProperty("--terminal-toast-width");
     return;
   }
 
-  const rect = terminalFormEl.getBoundingClientRect();
+  const rect = anchorEl.getBoundingClientRect();
   if (!rect.width || !rect.height) {
     document.documentElement.style.removeProperty("--terminal-toast-bottom");
     document.documentElement.style.removeProperty("--terminal-toast-left");
@@ -489,7 +475,7 @@ function updateTerminalViewportMetrics() {
   const restingBottomGap = landscapeRail
     ? `calc(14px + env(safe-area-inset-bottom, 0px))`
     : `calc(var(--nav-bar-height${desktopBottomNav ? "-desktop" : ""}) + env(safe-area-inset-bottom, 0px))`;
-  const restingFormBottom = landscapeRail
+  const restingControlsBottom = landscapeRail
     ? `max(10px, env(safe-area-inset-bottom, 0px))`
     : `calc(8px + env(safe-area-inset-bottom, 0px))`;
   document.documentElement.style.setProperty("--terminal-vv-height", `${height}px`);
@@ -510,10 +496,10 @@ function updateTerminalViewportMetrics() {
     keyboardOpen ? keyboardBottomGap : restingBottomGap,
   );
   layoutStyle.setProperty(
-    "--terminal-form-bottom",
+    "--terminal-controls-bottom",
     keyboardOpen
       ? `calc(var(--kb-gap) + env(safe-area-inset-bottom, 0px))`
-      : restingFormBottom,
+      : restingControlsBottom,
   );
   document.documentElement.classList.toggle("terminal-keyboard-open", keyboardOpen);
 }
@@ -724,31 +710,10 @@ function initTerminalBindings() {
 
   bindTerminalLayoutObservers();
 
-  if (terminalInputEl) {
-    terminalInputEl.autocomplete = "off";
-    terminalInputEl.autocapitalize = "none";
-    terminalInputEl.spellcheck = false;
-    terminalInputEl.setAttribute("autocorrect", "off");
-    terminalInputEl.setAttribute("enterkeyhint", "send");
-  }
-
   bindNodeOnce(terminalScreenEl, "scrollBound", () => {
     terminalFollowOutput = isTerminalPinnedToBottom();
     updateTerminalOverflowState();
   }, "scroll");
-
-  bindNodeOnce(terminalFormEl, "submitBound", (ev) => {
-    ev.preventDefault();
-    const line = (terminalInputEl?.value || "").trim();
-    if (!line) return;
-    if (runTerminalLocalAlias(line)) return;
-    terminalFollowOutput = isTerminalPinnedToBottom();
-    // Sent to the shell/program unchanged except `::` meta commands. `:` no
-    // longer collides, so `:qa!`, `:w`, etc. pass straight through to vim.
-    if (sendTerminalPacket({ type: "input", data: line })) {
-      terminalInputEl.value = "";
-    }
-  }, "submit");
 
   bindNodeOnce(btnTerminalCtrlCEl, "clickBound", () => {
     terminalFollowOutput = isTerminalPinnedToBottom();
@@ -770,7 +735,6 @@ function initTerminalBindings() {
   // On-screen key bar (Esc/Ctrl/Tab/arrows) for touch devices. mousedown
   // preventDefault keeps focus on the grid so physical/virtual typing that
   // follows still lands in the terminal.
-  const terminalKeysEl = document.getElementById("terminalKeys");
   if (terminalKeysEl && terminalKeysEl.dataset.keysBound !== "1") {
     terminalKeysEl.dataset.keysBound = "1";
     terminalKeysEl.querySelectorAll(".terminal-key").forEach((btn) => {
@@ -816,7 +780,7 @@ function teardownTerminalPage() {
   document.documentElement.style.removeProperty("--terminal-vv-top");
   const layoutStyle = terminalPageEl?.style || document.documentElement.style;
   layoutStyle.removeProperty("--terminal-bottom-gap");
-  layoutStyle.removeProperty("--terminal-form-bottom");
+  layoutStyle.removeProperty("--terminal-controls-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");

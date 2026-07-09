@@ -1,6 +1,6 @@
-﻿.page--terminal {
+.page--terminal {
   --terminal-bottom-gap: calc(var(--nav-bar-height) + env(safe-area-inset-bottom, 0px));
-  --terminal-form-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  --terminal-controls-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   --terminal-inline: max(var(--sp-lg), calc((100vw - var(--content-max-width)) / 2));
   position: fixed;
   left: 0;
@@ -406,7 +406,7 @@ body.support-terminal-dialog-open .app-toast-host {
   font-weight: 700;
 }
 
-/* xterm.js grid host — fills the same slot as .terminal-screen. Horizontal
+/* xterm.js grid host: fills the same slot as .terminal-screen. Horizontal
    padding tracks --terminal-inline so it stays aligned across breakpoints;
    xterm owns its own scroll/viewport. */
 .terminal-xterm {
@@ -448,18 +448,21 @@ body.support-terminal-dialog-open .app-toast-host {
   background: color-mix(in srgb, var(--md-outline) 42%, transparent);
 }
 
-/* On-screen key bar (Esc/Ctrl/Tab/arrows) for touch devices — horizontally
-   scrollable so it never wraps or pushes the input form off screen. */
+/* On-screen key/control bar for touch devices. It replaces the old command
+   input field now that xterm owns direct terminal input. */
 .terminal-keys {
   flex: 0 0 auto;
   display: flex;
   gap: var(--sp-sm);
   align-items: center;
-  margin: 4px var(--terminal-inline) 0;
+  margin: 6px var(--terminal-inline) var(--terminal-controls-bottom);
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  position: relative;
+  z-index: 152;
 }
 
 .terminal-keys::-webkit-scrollbar {
@@ -468,11 +471,11 @@ body.support-terminal-dialog-open .app-toast-host {
 
 .terminal-key {
   flex: 0 0 auto;
-  min-width: 42px;
-  min-height: 34px;
-  padding: 6px 12px;
+  min-width: 44px;
+  min-height: 36px;
+  padding: 7px 12px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 780;
   white-space: nowrap;
 }
 
@@ -480,79 +483,6 @@ body.support-terminal-dialog-open .app-toast-host {
   border-color: color-mix(in srgb, var(--md-primary) 60%, var(--md-stroke-soft));
   color: var(--md-primary);
   background: color-mix(in srgb, var(--md-primary) 16%, transparent);
-}
-
-.terminal-form {
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--sp-sm);
-  align-items: center;
-  margin: 8px var(--terminal-inline) var(--terminal-form-bottom);
-  padding-left: 14px;
-  border: 1px solid color-mix(in srgb, var(--md-stroke-soft) 56%, transparent);
-  border-radius: var(--control-radius);
-  background: color-mix(in srgb, var(--md-surface-cont) 92%, #000);
-  overflow: hidden;
-  position: relative;
-  z-index: 152;
-}
-
-.terminal-form:focus-within {
-  border-color: color-mix(in srgb, var(--md-stroke-strong) 76%, transparent);
-}
-
-.terminal-form.is-disabled {
-  border-color: color-mix(in srgb, var(--md-stroke-soft) 40%, transparent);
-  background: color-mix(in srgb, var(--md-surface-cont) 84%, #000);
-  opacity: .82;
-}
-
-.terminal-form__prompt {
-  color: var(--md-primary);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  font-weight: 700;
-  letter-spacing: 0;
-  align-self: center;
-}
-
-.terminal-form__input {
-  min-width: 0;
-  min-height: 44px;
-  padding: 10px 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--md-on-surface);
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-mono);
-  line-height: 1.25;
-  box-shadow: none;
-  outline: none;
-  appearance: none;
-}
-
-.terminal-form__input:focus {
-  border-color: transparent;
-}
-
-.terminal-form__input:disabled {
-  color: var(--md-on-surface-muted);
-  cursor: not-allowed;
-}
-
-.terminal-form .smallBtn {
-  align-self: stretch;
-  min-height: 100%;
-  padding: 0 16px;
-  font-size: 12px;
-  border: 0;
-  border-left: 1px solid color-mix(in srgb, var(--md-stroke-soft) 44%, transparent);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--md-primary) 16%, transparent);
-  color: var(--md-primary);
-  box-shadow: none;
 }
 
 @media (min-width: 769px) {
@@ -599,9 +529,8 @@ body.support-terminal-dialog-open .app-toast-host {
     line-height: 1.35;
   }
 
-  .terminal-form {
-    margin: 8px var(--terminal-inline) var(--terminal-form-bottom);
-    padding-left: 12px;
+  .terminal-keys {
+    margin: 6px var(--terminal-inline) var(--terminal-controls-bottom);
   }
 
   .terminal-approval {
@@ -612,9 +541,10 @@ body.support-terminal-dialog-open .app-toast-host {
     display: none;
   }
 
-  .terminal-form .smallBtn {
-    padding: 0 14px;
-    font-size: 11px;
+  .terminal-key {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 }
 
@@ -651,9 +581,8 @@ body.support-terminal-dialog-open .app-toast-host {
     line-height: 1.35;
   }
 
-  .terminal-form {
-    margin: 8px var(--terminal-inline) var(--terminal-form-bottom);
-    padding-left: 12px;
+  .terminal-keys {
+    margin: 6px var(--terminal-inline) var(--terminal-controls-bottom);
   }
 
   .terminal-approval {
@@ -665,9 +594,10 @@ body.support-terminal-dialog-open .app-toast-host {
     justify-content: flex-end;
   }
 
-  .terminal-form .smallBtn {
-    padding: 0 14px;
-    font-size: 11px;
+  .terminal-key {
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 }
 
@@ -726,9 +656,8 @@ body.support-terminal-dialog-open .app-toast-host {
     line-height: 1.45;
   }
 
-  .terminal-form {
-    margin: 6px var(--terminal-inline) var(--terminal-form-bottom);
-    padding-left: 12px;
+  .terminal-keys {
+    margin: 5px var(--terminal-inline) var(--terminal-controls-bottom);
   }
 
   .terminal-approval-host {
@@ -739,15 +668,9 @@ body.support-terminal-dialog-open .app-toast-host {
     padding: 7px 8px 7px 10px;
   }
 
-  .terminal-form__input {
-    min-height: 38px;
-    padding: 8px 0;
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .terminal-form .smallBtn {
-    padding: 0 16px;
+  .terminal-key {
+    min-height: 36px;
+    padding: 7px 13px;
     font-size: 13px;
     font-weight: 700;
   }
