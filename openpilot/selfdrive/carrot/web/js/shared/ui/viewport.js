@@ -94,7 +94,8 @@ function updateAppViewportMetrics() {
   if (keyboardOpen) document.documentElement.dataset.kbOpen = "1";
   else delete document.documentElement.dataset.kbOpen;
 
-  const terminalKeyboardMode = document.body?.dataset?.page === "terminal" && keyboardOpen;
+  const terminalKeyboardMode = document.body?.dataset?.page === "terminal" &&
+    (keyboardOpen || document.documentElement.dataset.terminalKeyboardActive === "1");
   const terminalKeyboardHeight = appVirtualKeyboard
     ? Math.max(320, Math.round((window.innerHeight || rawHeight) - keyboardHeight))
     : rawHeight;

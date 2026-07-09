@@ -37,6 +37,7 @@ let terminalXtermResizeObserver = null;
 let terminalXtermFitRaf = 0;
 let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
+let terminalKeyboardStateTimer = 0;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -82,6 +83,39 @@ function terminalXtermSupported() {
     && typeof window.FitAddon.FitAddon === "function");
 }
 
+function terminalUsesTouchKeyboard() {
+  if (typeof window.matchMedia === "function") {
+    try {
+      if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return true;
+    } catch (e) {}
+  }
+  return (window.innerWidth || 0) <= 640;
+}
+
+function setTerminalKeyboardActive(active) {
+  if (terminalKeyboardStateTimer) {
+    clearTimeout(terminalKeyboardStateTimer);
+    terminalKeyboardStateTimer = 0;
+  }
+  const root = document.documentElement;
+  if (active && terminalPageActive && terminalUsesTouchKeyboard()) {
+    root.dataset.terminalKeyboardActive = "1";
+  } else {
+    delete root.dataset.terminalKeyboardActive;
+  }
+  if (typeof updateAppViewportMetrics === "function") updateAppViewportMetrics();
+}
+
+function scheduleTerminalKeyboardInactive(delay = 700) {
+  if (terminalKeyboardStateTimer) clearTimeout(terminalKeyboardStateTimer);
+  terminalKeyboardStateTimer = window.setTimeout(() => {
+    terminalKeyboardStateTimer = 0;
+    if (document.documentElement.dataset.kbOpen !== "1") {
+      setTerminalKeyboardActive(false);
+    }
+  }, delay);
+}
+
 // Smaller cell on narrow screens so more columns fit. Terminals wrap at the
 // column width (they don't scroll horizontally), so more columns = less
 // wrapping / less truncation of wide output on phones.
@@ -118,11 +152,18 @@ function ensureTerminalXterm() {
   // Keystrokes typed directly into the grid drive interactive programs.
   term.onData((data) => {
     terminalFollowOutput = true;
+    setTerminalKeyboardActive(true);
     sendTerminalPacket({ type: "raw", data: applyTerminalCtrl(data) }, { quiet: true });
   });
   term.onResize(({ cols, rows }) => {
     sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true });
   });
+  if (typeof term.onFocus === "function") {
+    term.onFocus(() => setTerminalKeyboardActive(true));
+  }
+  if (typeof term.onBlur === "function") {
+    term.onBlur(() => scheduleTerminalKeyboardInactive());
+  }
   terminalXterm = term;
   terminalXtermFit = fit;
   // Re-fit whenever the host actually gets/changes size. This fixes the grid
@@ -478,7 +519,9 @@ function bindTerminalLayoutObservers() {
   };
   const handleResizeLayout = () => handleLayout({ resizeTerminal: true });
   const handleViewportScroll = () => {
-    if (document.body?.dataset?.page === "terminal" && document.documentElement.dataset.kbOpen === "1") {
+    if (document.body?.dataset?.page === "terminal" &&
+        (document.documentElement.dataset.kbOpen === "1" ||
+         document.documentElement.dataset.terminalKeyboardActive === "1")) {
       updateTerminalToastAnchor();
       return;
     }
@@ -497,6 +540,9 @@ function bindTerminalLayoutObservers() {
   if (navigator.virtualKeyboard) {
     navigator.virtualKeyboard.addEventListener("geometrychange", handleResizeLayout, { passive: true });
   }
+  document.addEventListener("focusout", () => {
+    if (document.body?.dataset?.page === "terminal") scheduleTerminalKeyboardInactive();
+  }, { passive: true });
 }
 
 function refreshTerminalLayout() {
@@ -720,7 +766,11 @@ function initTerminalBindings() {
     terminalKeysEl.dataset.keysBound = "1";
     terminalKeysEl.querySelectorAll(".terminal-key").forEach((btn) => {
       btn.addEventListener("mousedown", (ev) => ev.preventDefault());
-      btn.addEventListener("click", () => sendTerminalKey(btn.dataset.key));
+      btn.addEventListener("touchstart", () => setTerminalKeyboardActive(true), { passive: true });
+      btn.addEventListener("click", () => {
+        setTerminalKeyboardActive(true);
+        sendTerminalKey(btn.dataset.key);
+      });
     });
   }
 
@@ -729,10 +779,12 @@ function initTerminalBindings() {
   if (terminalXtermEl && terminalXtermEl.dataset.focusBound !== "1") {
     terminalXtermEl.dataset.focusBound = "1";
     terminalXtermEl.addEventListener("mousedown", () => {
+      setTerminalKeyboardActive(true);
       if (terminalXtermActive && terminalXterm) {
         requestAnimationFrame(() => terminalXterm.focus());
       }
     });
+    terminalXtermEl.addEventListener("touchstart", () => setTerminalKeyboardActive(true), { passive: true });
   }
 }
 
@@ -762,4 +814,5 @@ function teardownTerminalPage() {
   document.documentElement.style.removeProperty("--terminal-toast-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");
+  setTerminalKeyboardActive(false);
 }
