@@ -39,6 +39,7 @@ let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
 let terminalKeysTouchStart = null;
 let terminalLastSizeKey = "";
+const TERMINAL_MOBILE_MIN_COLS = 120;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -92,6 +93,24 @@ function terminalFontSize() {
   if (w <= 380) return 11;
   if (w <= 640) return 12;
   return 13;
+}
+
+function terminalUsesWideGrid() {
+  if ((window.innerWidth || 0) > 640) return false;
+  if (typeof window.matchMedia !== "function") return true;
+  try {
+    return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+  } catch (e) {
+    return true;
+  }
+}
+
+function terminalHostContentWidth() {
+  if (!terminalXtermEl) return 0;
+  const rect = terminalXtermEl.getBoundingClientRect();
+  const style = getComputedStyle(terminalXtermEl);
+  const padX = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
+  return Math.max(0, rect.width - padX);
 }
 
 function ensureTerminalXterm() {
@@ -177,6 +196,21 @@ function fitTerminalXterm() {
     if (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize !== fs) {
       terminalXterm.options.fontSize = fs;
     }
+    if (terminalUsesWideGrid() && terminalXterm) {
+      terminalXtermEl?.style.removeProperty("--terminal-xterm-width");
+      terminalXtermFit.fit();
+      const visibleCols = Math.max(20, terminalXterm.cols | 0);
+      const rows = Math.max(6, terminalXterm.rows | 0);
+      const contentWidth = terminalHostContentWidth();
+      const cellWidth = contentWidth > 0 ? Math.max(6, contentWidth / visibleCols) : Math.max(6, fs * 0.62);
+      const cols = Math.max(visibleCols, TERMINAL_MOBILE_MIN_COLS);
+      const virtualWidth = Math.ceil(cols * cellWidth);
+      terminalXtermEl?.style.setProperty("--terminal-xterm-width", `${virtualWidth}px`);
+      terminalXterm.resize(cols, rows);
+      terminalXterm.refresh(0, Math.max(0, rows - 1));
+      return;
+    }
+    terminalXtermEl?.style.removeProperty("--terminal-xterm-width");
     terminalXtermFit.fit();
   } catch (e) {
     /* container not laid out yet */
@@ -215,6 +249,12 @@ function sendTerminalKey(key) {
 }
 
 function currentTerminalSize() {
+  if (terminalXtermActive && terminalXterm) {
+    return {
+      cols: Math.max(20, terminalXterm.cols | 0),
+      rows: Math.max(6, terminalXterm.rows | 0),
+    };
+  }
   if (terminalXtermActive && terminalXtermFit && terminalXtermFit.proposeDimensions) {
     try {
       const dims = terminalXtermFit.proposeDimensions();

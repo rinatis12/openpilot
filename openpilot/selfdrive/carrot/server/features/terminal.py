@@ -26,6 +26,7 @@ except Exception:
 
 TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", re.IGNORECASE)
 TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
+PTY_HISTORY_LIMIT = 512 * 1024
 
 
 def _translate_terminal_line(line: str, *, nested_tmux: bool = False) -> str:
@@ -48,6 +49,217 @@ def _set_pty_size(fd: int, rows: int, cols: int) -> None:
   rows = max(8, min(int(rows or 24), 200))
   cols = max(20, min(int(cols or 80), 400))
   fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+def _write_all(fd: int, data: bytes) -> None:
+  view = memoryview(data)
+  while view:
+    written = os.write(fd, view)
+    if written <= 0:
+      raise OSError("pty write failed")
+    view = view[written:]
+
+
+class PersistentPtySession:
+  def __init__(self) -> None:
+    self.session = "login-shell"
+    self.master_fd = -1
+    self.proc: Optional[subprocess.Popen] = None
+    self.reader_task: asyncio.Task | None = None
+    self.clients: set[web.WebSocketResponse] = set()
+    self.history = bytearray()
+    self.rows = 28
+    self.cols = 100
+    self.lock = asyncio.Lock()
+
+  def _alive_locked(self) -> bool:
+    return self.master_fd >= 0 and self.proc is not None and self.proc.poll() is None
+
+  async def ensure(self, rows: int, cols: int) -> bool:
+    async with self.lock:
+      self.rows = max(8, min(int(rows or self.rows), 200))
+      self.cols = max(20, min(int(cols or self.cols), 400))
+      if self._alive_locked():
+        _set_pty_size(self.master_fd, self.rows, self.cols)
+        return False
+
+      self._close_fds_locked()
+      self.history.clear()
+      if pty is None:
+        raise RuntimeError("PTY terminal is only available on POSIX devices")
+
+      master_fd, slave_fd = pty.openpty()
+      try:
+        _set_pty_size(master_fd, self.rows, self.cols)
+        env = os.environ.copy()
+        env.pop("TMUX", None)
+        env.setdefault("TERM", "xterm-256color")
+        env.setdefault("COLORTERM", "truecolor")
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        proc = subprocess.Popen(
+          [shell, "-lc", tmux.start_command()],
+          stdin=slave_fd,
+          stdout=slave_fd,
+          stderr=slave_fd,
+          close_fds=True,
+          env=env,
+          start_new_session=True,
+        )
+      except Exception:
+        try:
+          os.close(master_fd)
+        except Exception:
+          pass
+        raise
+      finally:
+        try:
+          os.close(slave_fd)
+        except Exception:
+          pass
+
+      self.master_fd = master_fd
+      self.proc = proc
+      self.reader_task = asyncio.create_task(self._read_loop())
+      return True
+
+  async def attach(self, ws: web.WebSocketResponse, rows: int, cols: int) -> bool:
+    created = await self.ensure(rows, cols)
+    async with self.lock:
+      self.clients.add(ws)
+      history = bytes(self.history)
+      session = self.session
+    await ws.send_str(json.dumps({
+      "type": "meta",
+      "mode": "pty",
+      "session": session,
+      "created": created,
+      "user": "comma",
+    }))
+    if history:
+      await ws.send_str(json.dumps({
+        "type": "pty_output",
+        "session": session,
+        "b64": base64.b64encode(history).decode("ascii"),
+        "replay": True,
+      }))
+    return created
+
+  async def detach(self, ws: web.WebSocketResponse) -> None:
+    async with self.lock:
+      self.clients.discard(ws)
+
+  async def write_text(self, text: str) -> None:
+    data = str(text or "").encode("utf-8", errors="replace")
+    if data:
+      await self.write(data)
+
+  async def write(self, data: bytes) -> None:
+    async with self.lock:
+      if not self._alive_locked():
+        raise RuntimeError("terminal session is not running")
+      fd = self.master_fd
+    await asyncio.to_thread(_write_all, fd, data)
+
+  async def clear_history(self) -> None:
+    async with self.lock:
+      self.history.clear()
+
+  async def resize(self, rows: int, cols: int) -> None:
+    async with self.lock:
+      self.rows = max(8, min(int(rows or self.rows), 200))
+      self.cols = max(20, min(int(cols or self.cols), 400))
+      if not self._alive_locked():
+        return
+      fd = self.master_fd
+      proc = self.proc
+      rows = self.rows
+      cols = self.cols
+    _set_pty_size(fd, rows, cols)
+    if proc and proc.poll() is None:
+      try:
+        os.killpg(proc.pid, signal.SIGWINCH)
+      except Exception:
+        pass
+
+  def _append_history(self, chunk: bytes) -> None:
+    self.history.extend(chunk)
+    if len(self.history) > PTY_HISTORY_LIMIT:
+      del self.history[:len(self.history) - PTY_HISTORY_LIMIT]
+
+  async def _broadcast(self, payload: dict) -> None:
+    async with self.lock:
+      clients = list(self.clients)
+    stale = []
+    text = json.dumps(payload)
+    for client in clients:
+      if client.closed:
+        stale.append(client)
+        continue
+      try:
+        await client.send_str(text)
+      except Exception:
+        stale.append(client)
+    if stale:
+      async with self.lock:
+        for client in stale:
+          self.clients.discard(client)
+
+  async def _read_loop(self) -> None:
+    try:
+      while True:
+        async with self.lock:
+          if not self._alive_locked():
+            break
+          fd = self.master_fd
+        try:
+          chunk = await asyncio.to_thread(os.read, fd, 4096)
+        except asyncio.CancelledError:
+          raise
+        except OSError:
+          break
+        if not chunk:
+          break
+        async with self.lock:
+          self._append_history(chunk)
+          session = self.session
+        await self._broadcast({
+          "type": "pty_output",
+          "session": session,
+          "b64": base64.b64encode(chunk).decode("ascii"),
+        })
+    finally:
+      async with self.lock:
+        exit_code = self.proc.poll() if self.proc else None
+        session = self.session
+        clients = list(self.clients)
+        self.clients.clear()
+        self._close_fds_locked()
+        self.proc = None
+        self.reader_task = None
+      payload = json.dumps({
+        "type": "pty_exit",
+        "session": session,
+        "exit_code": exit_code,
+      })
+      for client in clients:
+        if client.closed:
+          continue
+        try:
+          await client.send_str(payload)
+          await client.close()
+        except Exception:
+          pass
+
+  def _close_fds_locked(self) -> None:
+    if self.master_fd >= 0:
+      try:
+        os.close(self.master_fd)
+      except Exception:
+        pass
+      self.master_fd = -1
+
+
+PTY_SESSION = PersistentPtySession()
 
 
 async def ws_terminal(request: web.Request) -> web.WebSocketResponse:
@@ -163,91 +375,19 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
   ws = web.WebSocketResponse(heartbeat=20, compress=False)
   await ws.prepare(request)
 
-  session = "login-shell"
   rows = int(request.query.get("rows") or 28)
   cols = int(request.query.get("cols") or 100)
-  master_fd = -1
-  slave_fd = -1
-  proc: Optional[subprocess.Popen] = None
-  reader_task: asyncio.Task | None = None
 
   try:
-    if pty is None:
-      raise RuntimeError("PTY terminal is only available on POSIX devices")
-    master_fd, slave_fd = pty.openpty()
-    _set_pty_size(master_fd, rows, cols)
-    env = os.environ.copy()
-    env.pop("TMUX", None)
-    env.setdefault("TERM", "xterm-256color")
-    env.setdefault("COLORTERM", "truecolor")
-    shell = os.environ.get("SHELL") or "/bin/bash"
-    proc = subprocess.Popen(
-      [shell, "-lc", tmux.start_command()],
-      stdin=slave_fd,
-      stdout=slave_fd,
-      stderr=slave_fd,
-      close_fds=True,
-      env=env,
-      start_new_session=True,
-    )
-    os.close(slave_fd)
-    slave_fd = -1
-    await ws.send_str(json.dumps({
-      "type": "meta",
-      "mode": "pty",
-      "session": session,
-      "created": True,
-      "user": "comma",
-    }))
+    await PTY_SESSION.attach(ws, rows, cols)
   except Exception as e:
-    for fd in (master_fd, slave_fd):
-      if fd >= 0:
-        try:
-          os.close(fd)
-        except Exception:
-          pass
     await ws.send_str(json.dumps({
       "type": "error",
       "error": str(e),
-      "session": session,
+      "session": PTY_SESSION.session,
     }))
     await ws.close()
     return ws
-
-  async def read_pty() -> None:
-    assert master_fd >= 0
-    try:
-      while not ws.closed:
-        try:
-          chunk = await asyncio.to_thread(os.read, master_fd, 4096)
-        except OSError:
-          break
-        if not chunk:
-          break
-        # Send raw bytes as base64 so the browser terminal emulator decodes UTF-8
-        # itself and multi-byte characters split across 4096-byte reads are not
-        # corrupted (which decode(errors="replace") here would do).
-        await ws.send_str(json.dumps({
-          "type": "pty_output",
-          "session": session,
-          "b64": base64.b64encode(chunk).decode("ascii"),
-        }))
-    finally:
-      if not ws.closed:
-        try:
-          await ws.send_str(json.dumps({
-            "type": "pty_exit",
-            "session": session,
-            "exit_code": proc.poll() if proc else None,
-          }))
-        except Exception:
-          pass
-        try:
-          await ws.close()
-        except Exception:
-          pass
-
-  reader_task = asyncio.create_task(read_pty())
 
   try:
     async for msg in ws:
@@ -260,54 +400,34 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
         try:
           if typ == "input":
             line = _translate_terminal_line(str(data.get("data") or ""))
-            os.write(master_fd, (line + "\r").encode("utf-8", errors="replace"))
+            await PTY_SESSION.write_text(line + "\r")
           elif typ == "raw":
             text = str(data.get("data") or "")
             if text:
-              os.write(master_fd, text.encode("utf-8", errors="replace"))
+              await PTY_SESSION.write_text(text)
           elif typ == "resize":
-            _set_pty_size(master_fd, int(data.get("rows") or rows), int(data.get("cols") or cols))
-            if proc and proc.poll() is None:
-              try:
-                os.killpg(proc.pid, signal.SIGWINCH)
-              except Exception:
-                pass
+            await PTY_SESSION.resize(int(data.get("rows") or rows), int(data.get("cols") or cols))
           elif typ == "control":
             action = (data.get("action") or "").strip()
             if action == "ctrl_c":
-              os.write(master_fd, b"\x03")
+              await PTY_SESSION.write(b"\x03")
             elif action == "clear":
-              os.write(master_fd, b"clear\r")
+              await PTY_SESSION.clear_history()
+              await PTY_SESSION.write(b"clear\r")
             elif action == "refresh":
-              os.write(master_fd, b"\x0c")
+              await PTY_SESSION.write(b"\x0c")
             elif action == "detach":
-              os.write(master_fd, b"\x02d")
+              await PTY_SESSION.write(b"\x02d")
         except Exception as e:
           await ws.send_str(json.dumps({
             "type": "error",
             "error": str(e),
-            "session": session,
+            "session": PTY_SESSION.session,
           }))
       elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE, WSMsgType.CLOSING):
         break
   finally:
-    if reader_task:
-      reader_task.cancel()
-    if proc and proc.poll() is None:
-      try:
-        os.killpg(proc.pid, signal.SIGHUP)
-      except Exception:
-        proc.terminate()
-    if master_fd >= 0:
-      try:
-        os.close(master_fd)
-      except Exception:
-        pass
-    if slave_fd >= 0:
-      try:
-        os.close(slave_fd)
-      except Exception:
-        pass
+    await PTY_SESSION.detach(ws)
     try:
       await ws.close()
     except Exception:

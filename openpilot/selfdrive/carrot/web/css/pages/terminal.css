@@ -419,8 +419,11 @@ body.support-terminal-dialog-open .app-toast-host {
   position: relative;
   box-sizing: border-box;
   padding: 0 var(--terminal-inline);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
   background: color-mix(in srgb, var(--md-surface) 92%, #000);
 }
 
@@ -429,7 +432,7 @@ body.support-terminal-dialog-open .app-toast-host {
 }
 
 .terminal-xterm .xterm {
-  width: 100%;
+  width: max(100%, var(--terminal-xterm-width, 100%));
   height: 100%;
   padding: 0;
 }
@@ -440,7 +443,7 @@ body.support-terminal-dialog-open .app-toast-host {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--md-outline) 48%, transparent) transparent;
   /* Let one-finger vertical drags scroll the scrollback on touch devices. */
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
