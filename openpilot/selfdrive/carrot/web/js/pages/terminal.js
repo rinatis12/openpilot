@@ -144,8 +144,8 @@ function ensureTerminalXterm() {
     terminalLastSizeKey = `${cols | 0}x${rows | 0}`;
   });
   terminalXterm = term;
-  // Re-sync whenever the host actually gets/changes size. The PTY grid stays
-  // fixed; viewport changes only adjust local font metrics and scroll space.
+  // Re-fit whenever the host actually gets/changes size (page show, orientation,
+  // keyboard). Columns stay locked at 100; rows track the container height.
   if (typeof ResizeObserver === "function" && !terminalXtermResizeObserver) {
     terminalXtermResizeObserver = new ResizeObserver(() => {
       if (terminalPageActive) refreshTerminalLayout();
@@ -195,33 +195,30 @@ function activateTerminalXterm() {
   return true;
 }
 
-// Actual rendered cell size in CSS px (xterm 5.x renderService), with a font
-// estimate fallback. Used to size the grid off the container directly, which is
-// more reliable than FitAddon.proposeDimensions (which returns undefined until
-// the renderer has measured the font and left the grid stuck at 30 rows → the
-// empty band below the terminal).
-function terminalCellSize() {
-  try {
-    const d = terminalXterm && terminalXterm._core && terminalXterm._core._renderService
-      && terminalXterm._core._renderService.dimensions;
-    const cell = d && d.css && d.css.cell;
-    if (cell && cell.width > 0 && cell.height > 0) return { w: cell.width, h: cell.height };
-  } catch (e) {
-    /* internal API unavailable */
-  }
-  const fs = (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize) || 13;
-  return { w: fs * 0.6, h: Math.round(fs * 1.32) };
-}
-
+// Rows follow the container height so the grid fills the screen (no empty band
+// below it) while columns stay locked at 100. The cell height is measured from
+// the actually-rendered .xterm-screen (its height / current rows) in CSS pixels
+// — this is DPR-safe. Reading xterm's internal renderService cell instead could
+// report DEVICE pixels and undercount rows by the DPR, which is what left the
+// big empty band under the terminal when the keyboard opened on high-DPR phones.
 function terminalGridRows() {
-  // Fixed columns keep line-wrapping identical on every device (the part that
-  // makes the shared view "the same"); rows follow the container height so the
-  // grid fills the screen instead of leaving an empty band below it.
   try {
     const host = terminalXtermEl;
-    const h = host && host.clientHeight;
-    const cell = terminalCellSize();
-    if (h > 0 && cell.h > 0) return Math.max(6, Math.floor(h / cell.h));
+    const h = host ? host.getBoundingClientRect().height : 0;
+    if (h > 0) {
+      let cellH = 0;
+      const screen = host.querySelector(".xterm-screen");
+      const curRows = terminalXterm && terminalXterm.rows;
+      if (screen && curRows > 0) {
+        const sh = screen.getBoundingClientRect().height;
+        if (sh > 0) cellH = sh / curRows;
+      }
+      if (!(cellH > 0)) {
+        const fs = (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize) || 13;
+        cellH = fs * 1.25;
+      }
+      return Math.max(6, Math.floor(h / cellH));
+    }
   } catch (e) {
     /* not laid out yet */
   }
@@ -241,6 +238,9 @@ function fitTerminalXterm() {
       // Tell the shared PTY the new row count (columns stay locked at 100) so
       // full-screen apps (btop/vim) draw to the full height too.
       sendTerminalPacket({ type: "resize", cols: TERMINAL_GRID_COLS, rows }, { quiet: true });
+      // Keep the prompt pinned to the bottom after a resize so the shell isn't
+      // left in the middle with blank rows below it.
+      if (terminalFollowOutput) terminalXterm.scrollToBottom();
     } else {
       terminalXterm.refresh(0, rows - 1);
     }
