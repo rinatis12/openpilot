@@ -49,8 +49,6 @@ window.CarrotTranslations.register("en", {
     support_terminal_detail_tunnel: "Starting secure tunnel",
     support_terminal_detail_unavailable: "cloudflared unavailable",
     support_terminal_detail_tunnel_ready: "Secure tunnel ready",
-    support_terminal_detail_check_link: "Checking support link",
-    support_terminal_detail_link_verified: "Support link verified",
     support_terminal_detail_discord: "Sending Carrot server notification",
     support_terminal_detail_ready: "Ready",
     support_terminal_detail_failed: "Start failed",

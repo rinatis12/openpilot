@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from aiohttp import ClientSession, ClientTimeout, web, WSMsgType
+from aiohttp import web, WSMsgType
 
 from ..config import TMUX_WEB_SESSION
 from ..terminal_commands import translate_meta_command
@@ -27,8 +27,6 @@ ALLOWED_PERMISSION_MODES = {"approve_each", "allow_all"}
 ALLOWED_COMMAND_TIMEOUT_SECONDS = {15, 30, 60, 120}
 SCREEN_POLL_SECONDS = 0.25
 PIN_FAILURE_LIMIT = 5
-PUBLIC_URL_READY_ATTEMPTS = 30
-PUBLIC_URL_READY_DELAY = 1.0
 PUBLIC_URL_START_DELAY = float(os.environ.get("CARROT_SUPPORT_LINK_START_DELAY_SECONDS", "3.0"))
 TMUX_ATTACH_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)(?:\s*)$", re.IGNORECASE)
 TMUX_ATTACH_TARGET_RE = re.compile(r"^\s*tmux\s+(?:a|attach|attach-session)\s+-t\s+\S+\s*$", re.IGNORECASE)
@@ -60,41 +58,6 @@ def _translate_support_terminal_line(line: str) -> str:
   if TMUX_ATTACH_TARGET_RE.match(text):
     return f"TMUX= {text.strip()}"
   return text
-
-
-async def _wait_public_url_ready(session: ClientSession | None, url: str) -> dict[str, Any]:
-  if not url.startswith(("http://", "https://")):
-    raise RuntimeError("support URL is invalid")
-  timeout = ClientTimeout(total=4)
-  owns_session = session is None
-  if session is None:
-    session = ClientSession(timeout=timeout)
-  last_error = ""
-  try:
-    for attempt in range(PUBLIC_URL_READY_ATTEMPTS):
-      try:
-        async with session.get(url, timeout=timeout, allow_redirects=True) as resp:
-          if resp.status == 200:
-            body = await resp.text(errors="ignore")
-            if "Carrot Remote Terminal" not in body:
-              last_error = "HTTP 200 without support page"
-              continue
-            return {
-              "ok": True,
-              "status": resp.status,
-              "page_verified": True,
-              "attempt": attempt + 1,
-              "max_attempts": PUBLIC_URL_READY_ATTEMPTS,
-            }
-          last_error = f"HTTP {resp.status}"
-      except Exception as exc:
-        last_error = str(exc)
-      if attempt < PUBLIC_URL_READY_ATTEMPTS - 1:
-        await asyncio.sleep(PUBLIC_URL_READY_DELAY)
-    raise RuntimeError(f"support URL is not reachable after {PUBLIC_URL_READY_ATTEMPTS} attempts: {last_error or 'timeout'}")
-  finally:
-    if owns_session:
-      await session.close()
 
 
 def _csp_connect_sources(host: str) -> str:
@@ -159,7 +122,6 @@ class SupportSession:
   local_url: str = ""
   local_origin_url: str = ""
   discord: dict[str, Any] = field(default_factory=dict)
-  link_check: dict[str, Any] = field(default_factory=dict)
   error: str = ""
   status_detail: str = ""
   pin_failures: int = 0
@@ -222,7 +184,6 @@ class SupportTerminalManager:
       "owner_count": len(session.owner_sockets),
       "owner_present": bool(session.owner_sockets),
       "discord": session.discord,
-      "link_check": session.link_check,
       "error": session.error,
       "status_detail": session.status_detail,
       "pending_commands": [
@@ -286,7 +247,6 @@ class SupportTerminalManager:
       session.tunnel_url = self._public_session_url(session.tunnel.url, session.id)
       session.state = "sharing"
       await self._set_status(session, "Secure tunnel ready")
-      session.link_check = {"skipped": True, "delay_seconds": PUBLIC_URL_START_DELAY}
       if PUBLIC_URL_START_DELAY > 0:
         await asyncio.sleep(PUBLIC_URL_START_DELAY)
       if await self._abort_if_not_current(session):
@@ -308,7 +268,6 @@ class SupportTerminalManager:
         "ttl_minutes": "unlimited" if session.ttl_seconds <= 0 else max(1, session.ttl_seconds // 60),
         "permissionMode": session.permission_mode,
         "commandTimeoutSeconds": session.command_timeout_seconds,
-        "linkCheck": session.link_check,
         "tmuxSession": TMUX_WEB_SESSION,
         "meta": metadata,
         "note": session.note,

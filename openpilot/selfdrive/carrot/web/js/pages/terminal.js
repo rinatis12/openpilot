@@ -167,6 +167,22 @@ function sendTerminalKey(key) {
   }
 }
 
+// True when a full-screen program (vim, btop, less, nano, htop) is on xterm's
+// alternate screen buffer. In that state the line input box must send its text
+// verbatim to the program instead of running it through the shell meta/tmux
+// translation, so e.g. ":qa!" reaches vim rather than being hijacked.
+function terminalInAltScreen() {
+  try {
+    return !!(terminalXtermActive
+      && terminalXterm
+      && terminalXterm.buffer
+      && terminalXterm.buffer.active
+      && terminalXterm.buffer.active.type === "alternate");
+  } catch (e) {
+    return false;
+  }
+}
+
 function currentTerminalSize() {
   if (terminalXtermActive && terminalXtermFit && terminalXtermFit.proposeDimensions) {
     try {
@@ -700,10 +716,19 @@ function initTerminalBindings() {
 
   bindNodeOnce(terminalFormEl, "submitBound", (ev) => {
     ev.preventDefault();
-    const line = (terminalInputEl?.value || "").trim();
+    const raw = terminalInputEl?.value || "";
+    const line = raw.trim();
     if (!line) return;
-    if (runTerminalLocalAlias(line)) return;
     terminalFollowOutput = isTerminalPinnedToBottom();
+    // Inside a full-screen app, type the line straight into it (+Enter) with no
+    // meta/tmux translation, so `:qa!`, `:w`, etc. reach the program.
+    if (terminalInAltScreen()) {
+      if (sendTerminalPacket({ type: "raw", data: raw + "\r" }, { quiet: true })) {
+        terminalInputEl.value = "";
+      }
+      return;
+    }
+    if (runTerminalLocalAlias(line)) return;
     if (sendTerminalPacket({ type: "input", data: line })) {
       terminalInputEl.value = "";
     }

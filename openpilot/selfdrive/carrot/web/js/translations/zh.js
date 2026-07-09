@@ -49,8 +49,6 @@ window.CarrotTranslations.register("zh", {
     support_terminal_detail_tunnel: "正在启动安全隧道",
     support_terminal_detail_unavailable: "cloudflared 不可用",
     support_terminal_detail_tunnel_ready: "安全隧道已就绪",
-    support_terminal_detail_check_link: "正在检查支持链接",
-    support_terminal_detail_link_verified: "支持链接已验证",
     support_terminal_detail_discord: "正在发送 Carrot 服务器通知",
     support_terminal_detail_ready: "已就绪",
     support_terminal_detail_failed: "启动失败",

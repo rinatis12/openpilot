@@ -49,8 +49,6 @@ window.CarrotTranslations.register("ko", {
     support_terminal_detail_tunnel: "보안 터널 시작 중",
     support_terminal_detail_unavailable: "cloudflared 사용 불가",
     support_terminal_detail_tunnel_ready: "보안 터널 준비됨",
-    support_terminal_detail_check_link: "지원 링크 확인 중",
-    support_terminal_detail_link_verified: "지원 링크 확인됨",
     support_terminal_detail_discord: "당근 서버로 알림 전송 중",
     support_terminal_detail_ready: "준비됨",
     support_terminal_detail_failed: "시작 실패",
