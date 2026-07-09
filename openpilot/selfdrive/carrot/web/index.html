@@ -3,13 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="google" content="notranslate" />
-  <!-- Keep the default interactive-widget=resizes-visual: the on-screen keyboard
-       must shrink only the *visual* viewport, not the layout viewport. Dialogs
-       anchor to --app-vv-* (visualViewport) so they stay keyboard-safe, while the
-       layout-viewport aspect-ratio (which drives rail/split via 13/10) stays
-       stable — otherwise opening the keyboard on a near-square device would push
-       aspect-ratio past 13/10 and flip the whole app to the rail layout mid-typing. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <!-- Let keyboard-heavy pages follow the visible content viewport instead of
+       manually stacking keyboard offsets on top of the terminal/dialog layout. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>CarrotPilot</title>
   <link rel="icon" type="image/png" href="/assets/img_chffr_wheel.png?v=2604-01" />
   <script>
@@ -124,7 +120,7 @@
   <link rel="stylesheet" href="/css/components/nav_status_badges.css?v=2607-05" />
   <link rel="stylesheet" href="/css/pages/logs.css?v=2607-43" />
   <link rel="stylesheet" href="/css/vendor/xterm.css?v=550" />
-  <link rel="stylesheet" href="/css/pages/terminal.css?v=2607-87" />
+  <link rel="stylesheet" href="/css/pages/terminal.css?v=2607-88" />
   <link rel="stylesheet" href="/css/pages/settings/base.css?v=2606-21" />
   <link rel="stylesheet" href="/css/pages/settings/panels.css?v=2607-44" />
   <link rel="stylesheet" href="/css/pages/settings/device.css?v=2607-51" />
@@ -831,7 +827,7 @@
   <script src="/js/shared/ui/focus_trap.js?v=2605-15"></script>
   <script src="/js/shared/ui/dialog.js?v=2607-44"></script>
   <script src="/js/shared/ui/setting_form.js?v=2607-03"></script>
-  <script src="/js/shared/ui/viewport.js?v=2607-50"></script>
+  <script src="/js/shared/ui/viewport.js?v=2607-51"></script>
   <script src="/js/shared/ui/effects.js?v=2604-72"></script>
   <script src="/js/shared/ui/navigation.js?v=2607-42"></script>
   <script src="/js/pages/car.js?v=2607-01"></script>
@@ -857,7 +853,7 @@
   <script src="/js/pages/logs/dashcam.js?v=2607-02"></script>
   <script src="/js/pages/logs/screenrecord.js?v=2605-15"></script>
   <script src="/js/vendor/xterm.js?v=550"></script>
-  <script src="/js/pages/terminal.js?v=2607-80"></script>
+  <script src="/js/pages/terminal.js?v=2607-81"></script>
   <script src="/js/pages/support_terminal.js?v=2607-20"></script>
   <script src="/js/realtime/raw_capnp.js?v=2604-05"></script>
   <script src="/js/realtime/mini_hud_model.js?v=2607-85"></script>

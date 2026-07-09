@@ -160,6 +160,25 @@ function initVirtualKeyboard() {
 
 const appVirtualKeyboard = initVirtualKeyboard();
 
+function setAppVirtualKeyboardOverlaysContent(enabled) {
+  if (!appVirtualKeyboard) return false;
+  try {
+    appVirtualKeyboard.overlaysContent = !!enabled;
+    if (enabled) document.documentElement.dataset.vk = "1";
+    else delete document.documentElement.dataset.vk;
+    updateAppViewportMetrics();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+window.CarrotViewport = {
+  ...(window.CarrotViewport || {}),
+  setVirtualKeyboardOverlaysContent: setAppVirtualKeyboardOverlaysContent,
+  updateMetrics: updateAppViewportMetrics,
+};
+
 /* overlaysContent=true also means the browser no longer auto-scrolls a focused
    input above the keyboard (it isn't resizing anything). Dialogs, the terminal
    and the search panel anchor themselves above the keyboard, but plain inline

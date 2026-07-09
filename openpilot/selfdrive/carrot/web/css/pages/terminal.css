@@ -30,6 +30,10 @@ html[data-samsung-browser="1"][data-kb-open="1"] .page--terminal {
   --terminal-controls-bottom: calc(10px + var(--kb-inset, 0px) + var(--samsung-kb-extra) + env(safe-area-inset-bottom, 0px));
 }
 
+html[data-terminal-keyboard-mode="content-resize"] .page--terminal {
+  --terminal-controls-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
 .terminal-shell {
   width: 100%;
   height: 100%;
