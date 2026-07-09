@@ -389,6 +389,16 @@ body.support-terminal-dialog-open .app-toast-host {
   display: inline-block;
   width: max-content;
   min-width: 100%;
+  /* Terminal fidelity: keep every glyph exactly one cell wide so MOTD ASCII
+     art / aligned columns don't collapse. No ligatures/kerning/letter-spacing,
+     fixed 8-col tabs like a real terminal. */
+  tab-size: 8;
+  -moz-tab-size: 8;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-kerning: none;
+  text-rendering: optimizeSpeed;
 }
 
 .terminal-output__promptHost {

@@ -87,25 +87,44 @@ function stripTerminalAnsi(text) {
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\x1b[()][A-Za-z0-9]/g, "")
-    .replace(/\x0f/g, "");
+    // Drop leftover C0 control chars (bell, stray ESC, etc.) so they don't
+    // render as boxes. Keep \b (0x08), \t (0x09), \n (0x0a), \r (0x0d).
+    .replace(/[\x00-\x07\x0b\x0c\x0e-\x1f]/g, "");
 }
 
 function appendTerminalPtyOutput(chunk) {
-  let text = stripTerminalAnsi(chunk).replace(/\r\n/g, "\n");
+  const text = stripTerminalAnsi(chunk).replace(/\r\n/g, "\n");
   if (!text) return;
-  let out = terminalPtyBuffer || "";
+  const out = terminalPtyBuffer || "";
+  // Split the committed lines from the line currently under the cursor so that
+  // carriage-return / backspace overwrite *within* the line the way a real
+  // terminal does (e.g. git/pip progress bars), instead of dropping text.
+  const lastNl = out.lastIndexOf("\n");
+  let head = lastNl >= 0 ? out.slice(0, lastNl + 1) : "";
+  let line = lastNl >= 0 ? out.slice(lastNl + 1) : out;
+  let col = line.length;
   for (const ch of Array.from(text)) {
-    if (ch === "\r") {
-      const index = out.lastIndexOf("\n");
-      out = index >= 0 ? out.slice(0, index + 1) : "";
+    if (ch === "\n") {
+      head += line + "\n";
+      line = "";
+      col = 0;
+    } else if (ch === "\r") {
+      col = 0;
     } else if (ch === "\b") {
-      out = out.slice(0, -1);
+      if (col > 0) col -= 1;
     } else {
-      out += ch;
+      if (col < line.length) {
+        line = line.slice(0, col) + ch + line.slice(col + 1);
+      } else {
+        if (col > line.length) line = line.padEnd(col, " ");
+        line += ch;
+      }
+      col += 1;
     }
   }
-  const lines = out.split("\n");
-  terminalPtyBuffer = lines.length > 600 ? lines.slice(-600).join("\n") : out;
+  const merged = head + line;
+  const lines = merged.split("\n");
+  terminalPtyBuffer = lines.length > 600 ? lines.slice(-600).join("\n") : merged;
   setTerminalScreen(terminalPtyBuffer || " ", false);
 }
 
