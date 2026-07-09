@@ -66,6 +66,59 @@ function leaveTerminalKeyboardMode() {
   window.CarrotViewport?.updateMetrics?.();
 }
 
+function updateTerminalSizeDebug(computedRows = null) {
+  try {
+    let dbg = document.getElementById("terminalSizeDebug");
+    if (!dbg) {
+      dbg = document.createElement("div");
+      dbg.id = "terminalSizeDebug";
+      dbg.style.cssText = [
+        "position:fixed",
+        "top:0",
+        "left:0",
+        "right:0",
+        "z-index:99999",
+        "background:rgba(0,0,0,.82)",
+        "color:#7dff7d",
+        "font:10px/1.28 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        "padding:3px 5px",
+        "pointer-events:none",
+        "white-space:pre-wrap",
+        "word-break:break-word",
+        "max-height:118px",
+        "overflow:hidden",
+      ].join(";");
+      document.body.appendChild(dbg);
+    }
+
+    const rectText = (el) => {
+      if (!el || !el.getBoundingClientRect) return "-";
+      const r = el.getBoundingClientRect();
+      return `${Math.round(r.top)},${Math.round(r.height)}`;
+    };
+    const css = getComputedStyle(document.documentElement);
+    const vv = window.visualViewport;
+    const vk = navigator.virtualKeyboard;
+    const vkRect = vk?.boundingRect;
+    const host = terminalXtermEl;
+    const screen = host && host.querySelector(".xterm-screen");
+    const curRows = (terminalXterm && terminalXterm.rows) || 0;
+    const screenHeight = screen ? screen.getBoundingClientRect().height : 0;
+    const cellH = (screenHeight > 0 && curRows > 0) ? (screenHeight / curRows).toFixed(1) : "?";
+    const meta = document.querySelector('meta[name="viewport"]')?.content || "";
+    const lines = [
+      `ver82 dpr${window.devicePixelRatio} ih${window.innerHeight} oh${window.outerHeight} doc${document.documentElement.clientHeight}`,
+      `vv ${vv ? `${Math.round(vv.offsetTop)},${Math.round(vv.height)}` : "-"} appvv ${(css.getPropertyValue("--app-vv-height") || "").trim()} top ${(css.getPropertyValue("--app-vv-top") || "").trim()}`,
+      `kbOpen ${document.documentElement.dataset.kbOpen || "0"} vk ${document.documentElement.dataset.vk || "0"} overlay ${vk ? String(vk.overlaysContent) : "-"} kb ${(css.getPropertyValue("--kb-inset") || "").trim()} vkRect ${vkRect ? Math.round(vkRect.height) : "-"}`,
+      `term ${rectText(terminalPageEl)} head ${rectText(document.querySelector(".terminal-head"))} xterm ${rectText(host)} screen ${screen ? Math.round(screenHeight) : 0} cell ${cellH} rows ${curRows}/${computedRows ?? "-"}`,
+      `keys ${rectText(terminalKeysEl)} nav ${rectText(document.querySelector(".topbar"))} mode ${document.documentElement.dataset.terminalKeyboardMode || "-"} meta ${meta.includes("interactive-widget=resizes-content") ? "resize-content" : "no-iw"}`,
+    ];
+    dbg.textContent = lines.join("\n");
+  } catch (e) {
+    /* ignore diagnostics */
+  }
+}
+
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
 // interactive programs (vim, btop, less) that the shell input box cannot.
@@ -245,6 +298,7 @@ function fitTerminalXterm() {
       terminalXterm.options.fontSize = fs;
     }
     const rows = terminalGridRows();
+    updateTerminalSizeDebug(rows);
     if (terminalXterm.cols !== TERMINAL_GRID_COLS || terminalXterm.rows !== rows) {
       terminalXterm.resize(TERMINAL_GRID_COLS, rows);
       // Tell the shared PTY the new row count (columns stay locked at 100) so
@@ -597,6 +651,7 @@ function refreshTerminalLayout() {
     updateTerminalViewportMetrics();
     updateTerminalToastAnchor();
     updateTerminalOverflowState();
+    updateTerminalSizeDebug();
     sendTerminalResize();
     if (!terminalXtermActive && terminalFollowOutput) pinTerminalToBottom();
   });
