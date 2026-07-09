@@ -40,7 +40,8 @@ let terminalLayoutRaf = 0;
 let terminalKeysTouchStart = null;
 let terminalLastSizeKey = "";
 let terminalXtermPan = null;
-const TERMINAL_MOBILE_MIN_COLS = 120;
+const TERMINAL_NARROW_GRID_MAX_WIDTH = 760;
+const TERMINAL_NARROW_MIN_COLS = 132;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -97,13 +98,8 @@ function terminalFontSize() {
 }
 
 function terminalUsesWideGrid() {
-  if ((window.innerWidth || 0) > 640) return false;
-  if (typeof window.matchMedia !== "function") return true;
-  try {
-    return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-  } catch (e) {
-    return true;
-  }
+  const hostWidth = terminalXtermEl?.getBoundingClientRect?.().width || window.innerWidth || 0;
+  return hostWidth > 0 && hostWidth <= TERMINAL_NARROW_GRID_MAX_WIDTH;
 }
 
 function terminalHostContentWidth() {
@@ -221,8 +217,8 @@ function fitTerminalXterm() {
       const rows = Math.max(6, terminalXterm.rows | 0);
       const contentWidth = terminalHostContentWidth();
       const cellWidth = contentWidth > 0 ? Math.max(6, contentWidth / visibleCols) : Math.max(6, fs * 0.62);
-      const cols = Math.max(visibleCols, TERMINAL_MOBILE_MIN_COLS);
-      const virtualWidth = Math.ceil(cols * cellWidth);
+      const cols = Math.max(visibleCols, TERMINAL_NARROW_MIN_COLS);
+      const virtualWidth = Math.ceil((cols + 1) * cellWidth);
       setTerminalVirtualWidth(virtualWidth);
       terminalXterm.resize(cols, rows);
       terminalXterm.refresh(0, Math.max(0, rows - 1));
