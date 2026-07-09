@@ -39,9 +39,6 @@ let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
 let terminalKeysTouchStart = null;
 let terminalLastSizeKey = "";
-let terminalXtermPan = null;
-const TERMINAL_NARROW_GRID_MAX_WIDTH = 760;
-const TERMINAL_NARROW_MIN_COLS = 132;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices that have no physical Esc/Ctrl/arrow keys can still drive
@@ -97,36 +94,6 @@ function terminalFontSize() {
   return 13;
 }
 
-function terminalUsesWideGrid() {
-  const hostWidth = terminalXtermEl?.getBoundingClientRect?.().width || window.innerWidth || 0;
-  return hostWidth > 0 && hostWidth <= TERMINAL_NARROW_GRID_MAX_WIDTH;
-}
-
-function terminalHostContentWidth() {
-  if (!terminalXtermEl) return 0;
-  const rect = terminalXtermEl.getBoundingClientRect();
-  const style = getComputedStyle(terminalXtermEl);
-  const padX = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
-  return Math.max(0, rect.width - padX);
-}
-
-function setTerminalVirtualWidth(widthPx = 0) {
-  if (!terminalXtermEl) return;
-  const width = Math.max(0, Math.ceil(widthPx));
-  if (!width) {
-    terminalXtermEl.style.removeProperty("--terminal-xterm-width");
-    if (terminalXterm?.element) terminalXterm.element.style.removeProperty("width");
-    return;
-  }
-  const value = `${width}px`;
-  terminalXtermEl.style.setProperty("--terminal-xterm-width", value);
-  if (terminalXterm?.element) terminalXterm.element.style.width = value;
-}
-
-function terminalCanScrollX() {
-  return !!(terminalXtermEl && terminalXtermEl.scrollWidth > terminalXtermEl.clientWidth + 2);
-}
-
 function ensureTerminalXterm() {
   if (terminalXterm) return terminalXterm;
   if (!terminalXtermSupported()) return null;
@@ -169,7 +136,10 @@ function ensureTerminalXterm() {
   // opening as a tiny top-left box when the container is not laid out yet at
   // open time (page just shown / reconnect), without relying on fit timing.
   if (typeof ResizeObserver === "function" && !terminalXtermResizeObserver) {
-    terminalXtermResizeObserver = new ResizeObserver(() => scheduleTerminalFit());
+    terminalXtermResizeObserver = new ResizeObserver(() => {
+      if (terminalPageActive) refreshTerminalLayout();
+      else scheduleTerminalFit();
+    });
     terminalXtermResizeObserver.observe(terminalXtermEl);
   }
   return term;
@@ -210,21 +180,6 @@ function fitTerminalXterm() {
     if (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize !== fs) {
       terminalXterm.options.fontSize = fs;
     }
-    if (terminalUsesWideGrid() && terminalXterm) {
-      setTerminalVirtualWidth(0);
-      terminalXtermFit.fit();
-      const visibleCols = Math.max(20, terminalXterm.cols | 0);
-      const rows = Math.max(6, terminalXterm.rows | 0);
-      const contentWidth = terminalHostContentWidth();
-      const cellWidth = contentWidth > 0 ? Math.max(6, contentWidth / visibleCols) : Math.max(6, fs * 0.62);
-      const cols = Math.max(visibleCols, TERMINAL_NARROW_MIN_COLS);
-      const virtualWidth = Math.ceil((cols + 1) * cellWidth);
-      setTerminalVirtualWidth(virtualWidth);
-      terminalXterm.resize(cols, rows);
-      terminalXterm.refresh(0, Math.max(0, rows - 1));
-      return;
-    }
-    setTerminalVirtualWidth(0);
     terminalXtermFit.fit();
   } catch (e) {
     /* container not laid out yet */
@@ -554,6 +509,7 @@ function bindTerminalLayoutObservers() {
   handleResizeLayout();
   window.addEventListener("resize", handleResizeLayout, { passive: true });
   window.addEventListener("orientationchange", handleResizeLayout, { passive: true });
+  window.addEventListener("pageshow", handleResizeLayout, { passive: true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", handleResizeLayout, { passive: true });
     window.visualViewport.addEventListener("scroll", handleViewportScroll, { passive: true });
@@ -563,6 +519,15 @@ function bindTerminalLayoutObservers() {
   if (navigator.virtualKeyboard) {
     navigator.virtualKeyboard.addEventListener("geometrychange", handleResizeLayout, { passive: true });
   }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && document.body?.dataset?.page === "terminal") handleResizeLayout();
+  }, { passive: true });
+}
+
+function scheduleTerminalSettledLayouts() {
+  window.setTimeout(refreshTerminalLayout, 80);
+  window.setTimeout(refreshTerminalLayout, 260);
+  window.setTimeout(refreshTerminalLayout, 700);
 }
 
 function refreshTerminalLayout() {
@@ -822,38 +787,6 @@ function initTerminalBindings() {
         requestAnimationFrame(() => terminalXterm.focus());
       }
     });
-    terminalXtermEl.addEventListener("touchstart", (ev) => {
-      const touch = ev.touches && ev.touches[0];
-      terminalXtermPan = touch
-        ? { x: touch.clientX, y: touch.clientY, scrollLeft: terminalXtermEl.scrollLeft, active: false }
-        : null;
-    }, { passive: true, capture: true });
-    terminalXtermEl.addEventListener("touchmove", (ev) => {
-      if (!terminalXtermPan || !terminalUsesWideGrid() || !terminalCanScrollX()) return;
-      const touch = ev.touches && ev.touches[0];
-      if (!touch) return;
-      const dx = touch.clientX - terminalXtermPan.x;
-      const dy = touch.clientY - terminalXtermPan.y;
-      if (!terminalXtermPan.active) {
-        if (Math.abs(dx) <= Math.abs(dy) + 6) return;
-        terminalXtermPan.active = true;
-      }
-      terminalXtermEl.scrollLeft = terminalXtermPan.scrollLeft - dx;
-      ev.preventDefault();
-      ev.stopPropagation();
-    }, { passive: false, capture: true });
-    terminalXtermEl.addEventListener("touchend", () => {
-      terminalXtermPan = null;
-    }, { passive: true, capture: true });
-    terminalXtermEl.addEventListener("touchcancel", () => {
-      terminalXtermPan = null;
-    }, { passive: true, capture: true });
-    terminalXtermEl.addEventListener("wheel", (ev) => {
-      if (!terminalUsesWideGrid() || !terminalCanScrollX()) return;
-      if (Math.abs(ev.deltaX) <= Math.abs(ev.deltaY)) return;
-      terminalXtermEl.scrollLeft += ev.deltaX;
-      ev.preventDefault();
-    }, { passive: false });
   }
 }
 
@@ -866,7 +799,7 @@ function initTerminalPage() {
   setTerminalSessionMeta();
   if (!terminalXtermActive && !terminalLastScreen) setTerminalScreen(" ", true);
   refreshTerminalLayout();
-  window.setTimeout(refreshTerminalLayout, 90);
+  scheduleTerminalSettledLayouts();
   connectTerminal(false);
   window.CarrotSupportTerminal?.init?.();
 }
@@ -883,6 +816,5 @@ function teardownTerminalPage() {
   document.documentElement.style.removeProperty("--terminal-toast-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");
-  terminalXtermPan = null;
   terminalKeysTouchStart = null;
 }
