@@ -163,6 +163,19 @@ function activateTerminalXterm() {
   return true;
 }
 
+function terminalGridRows() {
+  // Fixed columns keep line-wrapping identical on every device (the part that
+  // makes the shared view "the same"); rows follow the container height so the
+  // grid fills the screen instead of leaving an empty band below it.
+  try {
+    const dims = terminalXtermFit && terminalXtermFit.proposeDimensions && terminalXtermFit.proposeDimensions();
+    if (dims && dims.rows) return Math.max(TERMINAL_GRID_ROWS, dims.rows | 0);
+  } catch (e) {
+    /* not laid out yet */
+  }
+  return TERMINAL_GRID_ROWS;
+}
+
 function fitTerminalXterm() {
   if (!terminalXtermActive || !terminalXterm) return;
   try {
@@ -170,10 +183,14 @@ function fitTerminalXterm() {
     if (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize !== fs) {
       terminalXterm.options.fontSize = fs;
     }
-    if (terminalXterm.cols !== TERMINAL_GRID_COLS || terminalXterm.rows !== TERMINAL_GRID_ROWS) {
-      terminalXterm.resize(TERMINAL_GRID_COLS, TERMINAL_GRID_ROWS);
+    const rows = terminalGridRows();
+    if (terminalXterm.cols !== TERMINAL_GRID_COLS || terminalXterm.rows !== rows) {
+      terminalXterm.resize(TERMINAL_GRID_COLS, rows);
+      // Tell the shared PTY the new row count (columns stay locked at 100) so
+      // full-screen apps (btop/vim) draw to the full height too.
+      sendTerminalPacket({ type: "resize", cols: TERMINAL_GRID_COLS, rows }, { quiet: true });
     } else {
-      terminalXterm.refresh(0, TERMINAL_GRID_ROWS - 1);
+      terminalXterm.refresh(0, rows - 1);
     }
   } catch (e) {
     /* container not laid out yet */
@@ -212,7 +229,8 @@ function sendTerminalKey(key) {
 }
 
 function currentTerminalSize() {
-  return { cols: TERMINAL_GRID_COLS, rows: TERMINAL_GRID_ROWS };
+  const rows = (terminalXtermActive && terminalXterm && terminalXterm.rows) || terminalGridRows();
+  return { cols: TERMINAL_GRID_COLS, rows };
 }
 
 function setTerminalMeta(text) {

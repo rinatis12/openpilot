@@ -196,10 +196,22 @@ class PersistentPtySession:
       self.history.clear()
 
   async def resize(self, ws: web.WebSocketResponse, rows: int, cols: int) -> None:
-    # Shared terminal sessions must keep one stable grid. Browser viewport
-    # changes are handled client-side by font size and scrolling; resizing the
-    # PTY would make every other viewer reflow or lose the same-screen view.
-    return
+    # Columns stay locked at PTY_FIXED_COLS so line-wrapping is identical for
+    # every viewer (the "same view" guarantee). Only the row count follows the
+    # client so the grid fills the screen height and full-screen apps (btop/vim)
+    # draw to the full height instead of leaving an empty band below.
+    new_rows = max(8, min(int(rows or PTY_FIXED_ROWS), 200))
+    async with self.lock:
+      if not self._alive_locked() or new_rows == self.rows:
+        return
+      self.rows = new_rows
+      _set_pty_size(self.master_fd, self.rows, self.cols)
+      proc = self.proc
+    if proc is not None and proc.poll() is None:
+      try:
+        os.killpg(proc.pid, signal.SIGWINCH)
+      except Exception:
+        pass
 
   def _append_history(self, chunk: bytes) -> None:
     self.history.extend(chunk)
