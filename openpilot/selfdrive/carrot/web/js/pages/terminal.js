@@ -34,6 +34,8 @@ const terminalUsePty = true;
 let terminalXterm = null;
 let terminalXtermFit = null;
 let terminalXtermActive = false;
+let terminalXtermResizeObserver = null;
+let terminalXtermFitRaf = 0;
 let terminalCtrlSticky = false;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
@@ -74,12 +76,22 @@ function terminalXtermSupported() {
     && typeof window.FitAddon.FitAddon === "function");
 }
 
+// Smaller cell on narrow screens so more columns fit — terminals wrap at the
+// column width (they don't scroll horizontally), so more columns = less
+// wrapping / less truncation of wide output on phones.
+function terminalFontSize() {
+  const w = window.innerWidth || 800;
+  if (w <= 380) return 11;
+  if (w <= 640) return 12;
+  return 13;
+}
+
 function ensureTerminalXterm() {
   if (terminalXterm) return terminalXterm;
   if (!terminalXtermSupported()) return null;
   const term = new window.Terminal({
     fontFamily: readCssVar("--font-mono", "ui-monospace, \"Roboto Mono\", Menlo, monospace"),
-    fontSize: 13,
+    fontSize: terminalFontSize(),
     lineHeight: 1.15,
     cursorBlink: true,
     scrollback: 5000,
@@ -107,7 +119,22 @@ function ensureTerminalXterm() {
   });
   terminalXterm = term;
   terminalXtermFit = fit;
+  // Re-fit whenever the host actually gets/changes size. This fixes the grid
+  // opening as a tiny top-left box when the container is not laid out yet at
+  // open time (page just shown / reconnect), without relying on fit timing.
+  if (typeof ResizeObserver === "function" && !terminalXtermResizeObserver) {
+    terminalXtermResizeObserver = new ResizeObserver(() => scheduleTerminalFit());
+    terminalXtermResizeObserver.observe(terminalXtermEl);
+  }
   return term;
+}
+
+function scheduleTerminalFit() {
+  if (terminalXtermFitRaf) cancelAnimationFrame(terminalXtermFitRaf);
+  terminalXtermFitRaf = requestAnimationFrame(() => {
+    terminalXtermFitRaf = 0;
+    fitTerminalXterm();
+  });
 }
 
 function activateTerminalXterm() {
@@ -124,12 +151,19 @@ function activateTerminalXterm() {
   }
   terminalXtermActive = true;
   fitTerminalXterm();
+  // Container may still be settling right after the page is shown; fit again on
+  // the next couple of frames so the grid fills the whole area, not a small box.
+  requestAnimationFrame(() => requestAnimationFrame(() => fitTerminalXterm()));
   return true;
 }
 
 function fitTerminalXterm() {
   if (!terminalXtermActive || !terminalXtermFit) return;
   try {
+    const fs = terminalFontSize();
+    if (terminalXterm && terminalXterm.options && terminalXterm.options.fontSize !== fs) {
+      terminalXterm.options.fontSize = fs;
+    }
     terminalXtermFit.fit();
   } catch (e) {
     /* container not laid out yet */

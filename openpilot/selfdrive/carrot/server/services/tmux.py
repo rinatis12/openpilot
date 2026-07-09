@@ -6,7 +6,7 @@ import subprocess
 import time
 from typing import List
 
-from ..config import TMUX_CAPTURE_LINES, TMUX_WEB_SESSION
+from ..config import TMUX_CAPTURE_LINES, TMUX_START_DIR, TMUX_WEB_SESSION
 
 
 def run(args: List[str], timeout: float = 5.0, check: bool = False) -> subprocess.CompletedProcess:
@@ -37,12 +37,10 @@ def bootstrap_shell() -> str:
   # looks and behaves like WinSCP/ssh, not like an empty dedicated session:
   #   1) print the device's own MOTD (exactly what pam_motd shows on ssh) by
   #      running /etc/update-motd.d, falling back to the cached /run/motd.dynamic,
-  #   2) land in the home directory like ssh (~/.bash_profile only cd's to
-  #      /data/openpilot for the "comma" service session, so the web session
-  #      stays in ~),
+  #   2) start in /data/openpilot (where openpilot work happens),
   #   3) exec the real interactive login shell.
   motd = "( run-parts /etc/update-motd.d 2>/dev/null || cat /run/motd.dynamic 2>/dev/null )"
-  return f"{motd}; cd ~ 2>/dev/null; exec bash -il"
+  return f"{motd}; cd {shlex.quote(TMUX_START_DIR)} 2>/dev/null; exec bash -il"
 
 
 def start_command() -> str:
