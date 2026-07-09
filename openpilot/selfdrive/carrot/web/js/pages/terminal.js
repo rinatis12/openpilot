@@ -36,6 +36,7 @@ let terminalXtermActive = false;
 let terminalXtermResizeObserver = null;
 let terminalXtermFitRaf = 0;
 let terminalCtrlSticky = false;
+let terminalLayoutRaf = 0;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
 // devices — which have no physical Esc/Ctrl/arrow keys — can still drive
@@ -461,7 +462,7 @@ function updateTerminalViewportMetrics() {
   const landscapeRail = typeof isLandscapeRailMode === "function" && isLandscapeRailMode();
   const layoutHeight = Math.max(320, Math.round(window.innerHeight || vv?.height || 0));
   const height = Math.max(320, Math.round(vv?.height || window.innerHeight || 0));
-  const top = Math.max(0, Math.round(vv?.offsetTop || 0));
+  const viewportTop = Math.max(0, Math.round(vv?.offsetTop || 0));
   const vk = navigator.virtualKeyboard;
   const vkActive = !!(vk && document.documentElement.dataset.vk);
   // VK API mode: visualViewport does NOT shrink for the keyboard, so derive the
@@ -469,7 +470,7 @@ function updateTerminalViewportMetrics() {
   // bounding rect. Otherwise fall back to the visualViewport delta.
   const keyboardInset = vkActive
     ? Math.round((vk.boundingRect && vk.boundingRect.height) || 0)
-    : Math.max(0, Math.round(layoutHeight - height - top));
+    : Math.max(0, Math.round(layoutHeight - height - viewportTop));
   const keyboardOpen = !landscapeRail && keyboardInset > 120;
   const desktopBottomNav = window.matchMedia?.("(min-width: 769px)")?.matches;
   const restingBottomGap = landscapeRail
@@ -479,7 +480,7 @@ function updateTerminalViewportMetrics() {
     ? `max(10px, env(safe-area-inset-bottom, 0px))`
     : `calc(8px + env(safe-area-inset-bottom, 0px))`;
   document.documentElement.style.setProperty("--terminal-vv-height", `${height}px`);
-  document.documentElement.style.setProperty("--terminal-vv-top", `${top}px`);
+  document.documentElement.style.setProperty("--terminal-vv-top", `${keyboardOpen ? 0 : viewportTop}px`);
   const layoutStyle = terminalPageEl?.style || document.documentElement.style;
   // In VK mode --terminal-vv-height is the FULL height (vv doesn't shrink), so the
   // page height must also subtract the keyboard occlusion via the bottom gap; the
@@ -508,24 +509,43 @@ function bindTerminalLayoutObservers() {
   if (terminalLayoutBound) return;
   terminalLayoutBound = true;
 
-  const handleLayout = () => requestAnimationFrame(() => {
-    updateTerminalViewportMetrics();
-    updateTerminalToastAnchor();
-    updateTerminalOverflowState();
-    sendTerminalResize();
-    if (terminalFollowOutput) pinTerminalToBottom();
-  });
-  window.addEventListener("resize", handleLayout, { passive: true });
-  window.addEventListener("orientationchange", handleLayout, { passive: true });
+  const handleLayout = (options = {}) => {
+    const { resizeTerminal = true } = options;
+    if (terminalLayoutRaf) cancelAnimationFrame(terminalLayoutRaf);
+    terminalLayoutRaf = requestAnimationFrame(() => {
+      terminalLayoutRaf = 0;
+      updateTerminalViewportMetrics();
+      updateTerminalToastAnchor();
+      updateTerminalOverflowState();
+      if (resizeTerminal) sendTerminalResize();
+      if (!terminalXtermActive && terminalFollowOutput) pinTerminalToBottom();
+    });
+  };
+  const handleResizeLayout = () => handleLayout({ resizeTerminal: true });
+  const handleViewportScroll = () => handleLayout({ resizeTerminal: false });
+
+  handleResizeLayout();
+  window.addEventListener("resize", handleResizeLayout, { passive: true });
+  window.addEventListener("orientationchange", handleResizeLayout, { passive: true });
   if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", handleLayout, { passive: true });
-    window.visualViewport.addEventListener("scroll", handleLayout, { passive: true });
+    window.visualViewport.addEventListener("resize", handleResizeLayout, { passive: true });
+    window.visualViewport.addEventListener("scroll", handleViewportScroll, { passive: true });
   }
   // VK API mode: the keyboard show/hide fires geometrychange, not a
   // visualViewport resize (the visual viewport no longer moves).
   if (navigator.virtualKeyboard) {
-    navigator.virtualKeyboard.addEventListener("geometrychange", handleLayout, { passive: true });
+    navigator.virtualKeyboard.addEventListener("geometrychange", handleResizeLayout, { passive: true });
   }
+}
+
+function refreshTerminalLayout() {
+  requestAnimationFrame(() => {
+    updateTerminalViewportMetrics();
+    updateTerminalToastAnchor();
+    updateTerminalOverflowState();
+    sendTerminalResize();
+    if (!terminalXtermActive && terminalFollowOutput) pinTerminalToBottom();
+  });
 }
 
 function closeTerminalSocket() {
@@ -762,11 +782,9 @@ function initTerminalPage() {
   initTerminalBindings();
   activateTerminalXterm();
   setTerminalSessionMeta();
-  updateTerminalViewportMetrics();
   if (!terminalXtermActive && !terminalLastScreen) setTerminalScreen(" ", true);
-  requestAnimationFrame(updateTerminalToastAnchor);
-  requestAnimationFrame(updateTerminalOverflowState);
-  window.setTimeout(updateTerminalToastAnchor, 90);
+  refreshTerminalLayout();
+  window.setTimeout(refreshTerminalLayout, 90);
   connectTerminal(false);
   window.CarrotSupportTerminal?.init?.();
 }
@@ -776,6 +794,10 @@ function teardownTerminalPage() {
   window.CarrotSupportTerminal?.teardown?.();
   clearTerminalReconnectTimer();
   closeTerminalSocket();
+  if (terminalLayoutRaf) {
+    cancelAnimationFrame(terminalLayoutRaf);
+    terminalLayoutRaf = 0;
+  }
   document.documentElement.style.removeProperty("--terminal-vv-height");
   document.documentElement.style.removeProperty("--terminal-vv-top");
   const layoutStyle = terminalPageEl?.style || document.documentElement.style;
