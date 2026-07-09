@@ -508,7 +508,7 @@ window.CarrotTranslations.register("zh", {
     section_sys_cmd: "系统命令",
     section_output: "输出",
     sys_cmd_help: "允许: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
+    terminal_session: "tmux carrot-terminal",
     terminal_placeholder: "git status",
     terminal_send: "发送",
     terminal_reconnect: "重新连接",

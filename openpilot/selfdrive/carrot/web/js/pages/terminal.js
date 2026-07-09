@@ -18,7 +18,7 @@ const terminalXtermEl = document.getElementById("terminalXterm");
 let terminalWs = null;
 let terminalReconnectTimer = null;
 let terminalPageActive = false;
-let terminalSessionName = "carrot-web";
+let terminalSessionName = "";
 let terminalLastScreen = "";
 let terminalPtyBuffer = "";
 let terminalLayoutBound = false;
@@ -92,7 +92,7 @@ function ensureTerminalXterm() {
   const term = new window.Terminal({
     fontFamily: readCssVar("--font-mono", "ui-monospace, \"Roboto Mono\", Menlo, monospace"),
     fontSize: terminalFontSize(),
-    lineHeight: 1.15,
+    lineHeight: 1.25,
     cursorBlink: true,
     scrollback: 5000,
     convertEol: false,
@@ -561,7 +561,12 @@ function getTerminalWsUrl() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const size = currentTerminalSize();
   const path = terminalUsePty ? "/ws/terminal_pty" : "/ws/terminal";
-  return `${proto}://${location.host}${path}?session=${encodeURIComponent(terminalSessionName)}&cols=${size.cols}&rows=${size.rows}`;
+  const params = new URLSearchParams({
+    cols: String(size.cols),
+    rows: String(size.rows),
+  });
+  if (terminalSessionName) params.set("session", terminalSessionName);
+  return `${proto}://${location.host}${path}?${params.toString()}`;
 }
 
 function estimateTerminalSize() {

@@ -508,7 +508,7 @@ window.CarrotTranslations.register("ko", {
     section_sys_cmd: "시스템 명령",
     section_output: "출력",
     sys_cmd_help: "허용: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
+    terminal_session: "tmux carrot-terminal",
     terminal_placeholder: "git status",
     terminal_send: "Send",
     terminal_reconnect: "Reconnect",

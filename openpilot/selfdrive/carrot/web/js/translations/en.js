@@ -510,7 +510,7 @@ window.CarrotTranslations.register("en", {
     section_sys_cmd: "System Command",
     section_output: "Output",
     sys_cmd_help: "Allowed: pull, status, branch, log, git ..., df, free, uptime",
-    terminal_session: "tmux carrot-web",
+    terminal_session: "tmux carrot-terminal",
     terminal_placeholder: "git status",
     terminal_send: "Send",
     terminal_reconnect: "Reconnect",
