@@ -167,22 +167,6 @@ function sendTerminalKey(key) {
   }
 }
 
-// True when a full-screen program (vim, btop, less, nano, htop) is on xterm's
-// alternate screen buffer. In that state the line input box must send its text
-// verbatim to the program instead of running it through the shell meta/tmux
-// translation, so e.g. ":qa!" reaches vim rather than being hijacked.
-function terminalInAltScreen() {
-  try {
-    return !!(terminalXtermActive
-      && terminalXterm
-      && terminalXterm.buffer
-      && terminalXterm.buffer.active
-      && terminalXterm.buffer.active.type === "alternate");
-  } catch (e) {
-    return false;
-  }
-}
-
 function currentTerminalSize() {
   if (terminalXtermActive && terminalXtermFit && terminalXtermFit.proposeDimensions) {
     try {
@@ -211,7 +195,7 @@ function setTerminalSessionInfo(session = terminalSessionName) {
   setTerminalSessionMeta();
 }
 
-// The web terminal runs `:` meta commands by typing a fixed CLI bridge into
+// The web terminal runs `::` meta commands by typing a fixed CLI bridge into
 // tmux, so tmux echoes the raw `python3 -m ...cli --line <cmd>` invocation.
 // Replace that echo with our own friendly "running command" line.
 const TERMINAL_META_ECHO_RE = /(?:env\s+\S*PYTHONPATH=\S+\s+)?python3 -m selfdrive\.carrot\.server\.terminal_commands\.cli --line (.*)$/gm;
@@ -225,7 +209,7 @@ function rewriteTerminalMetaEcho(text) {
       arg = arg.slice(1, -1);
     }
     const label = getUIText("terminal_meta_running", "Carrot command");
-    return `▶ ${label}: :${arg}`;
+    return `▶ ${label}: ::${arg}`;
   });
 }
 
@@ -716,19 +700,12 @@ function initTerminalBindings() {
 
   bindNodeOnce(terminalFormEl, "submitBound", (ev) => {
     ev.preventDefault();
-    const raw = terminalInputEl?.value || "";
-    const line = raw.trim();
+    const line = (terminalInputEl?.value || "").trim();
     if (!line) return;
-    terminalFollowOutput = isTerminalPinnedToBottom();
-    // Inside a full-screen app, type the line straight into it (+Enter) with no
-    // meta/tmux translation, so `:qa!`, `:w`, etc. reach the program.
-    if (terminalInAltScreen()) {
-      if (sendTerminalPacket({ type: "raw", data: raw + "\r" }, { quiet: true })) {
-        terminalInputEl.value = "";
-      }
-      return;
-    }
     if (runTerminalLocalAlias(line)) return;
+    terminalFollowOutput = isTerminalPinnedToBottom();
+    // Sent to the shell/program unchanged except `::` meta commands. `:` no
+    // longer collides, so `:qa!`, `:w`, etc. pass straight through to vim.
     if (sendTerminalPacket({ type: "input", data: line })) {
       terminalInputEl.value = "";
     }

@@ -5,7 +5,11 @@ import shlex
 from pathlib import Path
 
 
-META_COMMAND_PREFIX = ":"
+# Double-colon so it never collides with a real shell command or a program's
+# own `:` commands (vim `:qa!`, etc.). A single line starting with `::` is not a
+# valid shell command, so the web terminal can safely claim it for meta commands
+# while everything else is passed through to the shell/program unchanged.
+META_COMMAND_PREFIX = "::"
 _CLI_MODULE = "selfdrive.carrot.server.terminal_commands.cli"
 _OPENPILOT_PACKAGE_ROOT = Path(__file__).resolve().parents[4]
 
