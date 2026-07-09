@@ -83,14 +83,16 @@ function terminalXtermSupported() {
     && typeof window.Terminal === "function");
 }
 
-// Smaller cell on narrow screens so more columns fit. Terminals wrap at the
-// column width (they don't scroll horizontally), so more columns = less
-// wrapping / less truncation of wide output on phones.
+// Auto-size the cell so the fixed 100-column grid fills the available width on
+// any screen (a phone gets a smaller font, a desktop a larger one) instead of a
+// fixed font that is either too small or overflows. Monospace advance is
+// ~0.6em; clamped so it stays legible — on very narrow phones it floors and the
+// container pans horizontally (.terminal-xterm overflow-x/touch pan-x).
 function terminalFontSize() {
-  const w = window.innerWidth || 800;
-  if (w <= 380) return 11;
-  if (w <= 640) return 12;
-  return 13;
+  const host = terminalXtermEl;
+  const w = (host && host.clientWidth) || window.innerWidth || 800;
+  const size = Math.floor((w - 24) / (TERMINAL_GRID_COLS * 0.6));
+  return Math.max(8, Math.min(size, 16));
 }
 
 function ensureTerminalXterm() {
