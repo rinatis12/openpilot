@@ -107,15 +107,61 @@ function updateTerminalSizeDebug(computedRows = null) {
     const cellH = (screenHeight > 0 && curRows > 0) ? (screenHeight / curRows).toFixed(1) : "?";
     const meta = document.querySelector('meta[name="viewport"]')?.content || "";
     const lines = [
-      `ver82 dpr${window.devicePixelRatio} ih${window.innerHeight} oh${window.outerHeight} doc${document.documentElement.clientHeight}`,
+      `ver83 dpr${window.devicePixelRatio} ih${window.innerHeight} oh${window.outerHeight} doc${document.documentElement.clientHeight}`,
       `vv ${vv ? `${Math.round(vv.offsetTop)},${Math.round(vv.height)}` : "-"} appvv ${(css.getPropertyValue("--app-vv-height") || "").trim()} top ${(css.getPropertyValue("--app-vv-top") || "").trim()}`,
       `kbOpen ${document.documentElement.dataset.kbOpen || "0"} vk ${document.documentElement.dataset.vk || "0"} overlay ${vk ? String(vk.overlaysContent) : "-"} kb ${(css.getPropertyValue("--kb-inset") || "").trim()} vkRect ${vkRect ? Math.round(vkRect.height) : "-"}`,
       `term ${rectText(terminalPageEl)} head ${rectText(document.querySelector(".terminal-head"))} xterm ${rectText(host)} screen ${screen ? Math.round(screenHeight) : 0} cell ${cellH} rows ${curRows}/${computedRows ?? "-"}`,
-      `keys ${rectText(terminalKeysEl)} nav ${rectText(document.querySelector(".topbar"))} mode ${document.documentElement.dataset.terminalKeyboardMode || "-"} meta ${meta.includes("interactive-widget=resizes-content") ? "resize-content" : "no-iw"}`,
+      `buf ${terminalBufferDebug()} keys ${rectText(terminalKeysEl)} nav ${rectText(document.querySelector(".topbar"))} mode ${document.documentElement.dataset.terminalKeyboardMode || "-"} meta ${meta.includes("interactive-widget=resizes-content") ? "resize-content" : "no-iw"}`,
     ];
     dbg.textContent = lines.join("\n");
   } catch (e) {
     /* ignore diagnostics */
+  }
+}
+
+function terminalBufferDebug() {
+  try {
+    const ns = terminalXterm?.buffer;
+    const b = ns?.active;
+    if (!b) return "-";
+    const normal = ns.normal && b === ns.normal;
+    return `${normal ? "n" : "a"} c${b.cursorY}/${b.cursorX} b${b.baseY} v${b.viewportY}`;
+  } catch (e) {
+    return "-";
+  }
+}
+
+function pinTerminalCursorToBottom() {
+  if (!terminalXtermActive || !terminalXterm || !terminalFollowOutput) return;
+  try {
+    const ns = terminalXterm.buffer;
+    const b = ns?.active;
+    if (!b) {
+      terminalXterm.scrollToBottom();
+      return;
+    }
+    if (ns.normal && b !== ns.normal) {
+      terminalXterm.scrollToBottom();
+      return;
+    }
+
+    const rows = Math.max(1, terminalXterm.rows | 0);
+    const cursorY = Math.max(0, b.cursorY | 0);
+    const baseY = Math.max(0, b.baseY | 0);
+    const targetViewportY = Math.max(0, baseY + cursorY - rows + 1);
+    if (typeof terminalXterm.scrollToLine === "function") {
+      terminalXterm.scrollToLine(targetViewportY);
+    } else {
+      terminalXterm.scrollToBottom();
+      const blankRows = Math.max(0, rows - 1 - cursorY);
+      if (blankRows > 0 && typeof terminalXterm.scrollLines === "function") {
+        terminalXterm.scrollLines(-blankRows);
+      }
+    }
+  } catch (e) {
+    try {
+      terminalXterm.scrollToBottom();
+    } catch (ignore) {}
   }
 }
 
@@ -304,11 +350,10 @@ function fitTerminalXterm() {
       // Tell the shared PTY the new row count (columns stay locked at 100) so
       // full-screen apps (btop/vim) draw to the full height too.
       sendTerminalPacket({ type: "resize", cols: TERMINAL_GRID_COLS, rows }, { quiet: true });
-      // Keep the prompt pinned to the bottom after a resize so the shell isn't
-      // left in the middle with blank rows below it.
-      if (terminalFollowOutput) terminalXterm.scrollToBottom();
+      requestAnimationFrame(pinTerminalCursorToBottom);
     } else {
       terminalXterm.refresh(0, rows - 1);
+      pinTerminalCursorToBottom();
     }
   } catch (e) {
     /* container not laid out yet */
