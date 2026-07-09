@@ -477,7 +477,13 @@ function bindTerminalLayoutObservers() {
     });
   };
   const handleResizeLayout = () => handleLayout({ resizeTerminal: true });
-  const handleViewportScroll = () => handleLayout({ resizeTerminal: false });
+  const handleViewportScroll = () => {
+    if (document.body?.dataset?.page === "terminal" && document.documentElement.dataset.kbOpen === "1") {
+      updateTerminalToastAnchor();
+      return;
+    }
+    handleLayout({ resizeTerminal: false });
+  };
 
   handleResizeLayout();
   window.addEventListener("resize", handleResizeLayout, { passive: true });

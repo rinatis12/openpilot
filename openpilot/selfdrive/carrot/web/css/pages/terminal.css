@@ -18,14 +18,32 @@
 }
 
 html[data-kb-open="1"] .page--terminal {
-  --terminal-bottom-gap: calc(var(--kb-inset) + env(safe-area-inset-bottom, 0px));
+  --terminal-bottom-gap: 0px;
   --terminal-controls-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  top: var(--app-vv-top, 0px);
+  height: var(--app-vv-height, 100dvh);
+  z-index: 130;
 }
 
 html[data-vk="1"][data-kb-open="1"] .page--terminal {
   top: 0;
   width: 100dvw;
-  height: calc(100dvh - var(--kb-inset) - env(safe-area-inset-bottom, 0px));
+  height: var(--app-vv-height, calc(100dvh - var(--kb-inset) - env(safe-area-inset-bottom, 0px)));
+}
+
+html[data-kb-open="1"] body[data-page="terminal"] .topbar {
+  display: none;
+  pointer-events: none;
+}
+
+html[data-kb-open="1"] body[data-page="terminal"] .wrap {
+  position: fixed;
+  inset: 0;
+  width: 100dvw;
+  height: var(--app-vv-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .terminal-shell {
@@ -427,6 +445,7 @@ body.support-terminal-dialog-open .app-toast-host {
   box-sizing: border-box;
   padding: 0 var(--terminal-inline);
   overflow: hidden;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--md-surface) 92%, #000);
 }
 
