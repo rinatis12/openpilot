@@ -35,7 +35,19 @@ let terminalXterm = null;
 let terminalXtermActive = false;
 let terminalXtermResizeObserver = null;
 let terminalXtermFitRaf = 0;
+let terminalKeyboardFitTimers = [];
 let terminalCtrlSticky = false;
+
+// Samsung Internet's keyboard toolbar (URL + action row) sits above the keys and
+// isn't fully covered by env(keyboard-inset-height); flag it so CSS can reserve
+// extra clearance for the key bar when the keyboard is open.
+try {
+  if (/SamsungBrowser/i.test(navigator.userAgent || "")) {
+    document.documentElement.dataset.samsungBrowser = "1";
+  }
+} catch (e) {
+  /* ignore */
+}
 let terminalLayoutRaf = 0;
 let terminalKeysTouchStart = null;
 let terminalLastSizeKey = "";
@@ -150,6 +162,15 @@ function scheduleTerminalFit() {
     terminalXtermFitRaf = 0;
     fitTerminalXterm();
   });
+}
+
+// The keyboard opening/closing resizes the container in steps (and Samsung
+// reports the geometry late); re-fit a few times as it settles so the grid ends
+// up matching the final height instead of a transient one (empty band bug).
+function scheduleKeyboardSettleFit() {
+  if (!terminalXtermActive) return;
+  terminalKeyboardFitTimers.forEach((t) => clearTimeout(t));
+  terminalKeyboardFitTimers = [0, 130, 320, 600].map((ms) => setTimeout(() => fitTerminalXterm(), ms));
 }
 
 function activateTerminalXterm() {
@@ -534,14 +555,19 @@ function bindTerminalLayoutObservers() {
   window.addEventListener("resize", handleResizeLayout, { passive: true });
   window.addEventListener("orientationchange", handleResizeLayout, { passive: true });
   window.addEventListener("pageshow", handleResizeLayout, { passive: true });
+  // Keyboard-driven layout changes also get extra settle-time re-fits.
+  const handleKeyboardLayout = () => {
+    handleResizeLayout();
+    scheduleKeyboardSettleFit();
+  };
   if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", handleResizeLayout, { passive: true });
+    window.visualViewport.addEventListener("resize", handleKeyboardLayout, { passive: true });
     window.visualViewport.addEventListener("scroll", handleViewportScroll, { passive: true });
   }
   // VK API mode: the keyboard show/hide fires geometrychange, not a
   // visualViewport resize (the visual viewport no longer moves).
   if (navigator.virtualKeyboard) {
-    navigator.virtualKeyboard.addEventListener("geometrychange", handleResizeLayout, { passive: true });
+    navigator.virtualKeyboard.addEventListener("geometrychange", handleKeyboardLayout, { passive: true });
   }
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && document.body?.dataset?.page === "terminal") handleResizeLayout();

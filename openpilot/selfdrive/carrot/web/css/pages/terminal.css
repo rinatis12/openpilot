@@ -21,6 +21,15 @@ html[data-kb-open="1"] .page--terminal {
   --terminal-controls-bottom: calc(10px + var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px));
 }
 
+/* Samsung Internet keeps a URL + action row above the keyboard that
+   env(keyboard-inset-height) does not include, so the key bar was clipped by it.
+   Reserve extra clearance only for Samsung + keyboard-open (other browsers keep
+   the exact inset). Tune --samsung-kb-extra if it's slightly off. */
+html[data-samsung-browser="1"][data-kb-open="1"] .page--terminal {
+  --samsung-kb-extra: 48px;
+  --terminal-controls-bottom: calc(10px + var(--kb-inset, 0px) + var(--samsung-kb-extra) + env(safe-area-inset-bottom, 0px));
+}
+
 .terminal-shell {
   width: 100%;
   height: 100%;
