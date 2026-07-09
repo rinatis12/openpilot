@@ -16,6 +16,7 @@ const terminalXtermEl = document.getElementById("terminalXterm");
 
 let terminalWs = null;
 let terminalReconnectTimer = null;
+let terminalResetPending = false;
 let terminalPageActive = false;
 let terminalSessionName = "";
 let terminalLastScreen = "";
@@ -49,6 +50,8 @@ const TERMINAL_KEY_SEQ = {
   tab: "\t",
   ctrl_c: "\x03",
   ctrl_d: "\x04",
+  // tmux detach: AGNOS prefix is backtick, so ` then d (used to leave `tmux a`).
+  detach: "\x60d",
   home: "\x1b[H",
   end: "\x1b[F",
   page_up: "\x1b[5~",
@@ -585,6 +588,11 @@ function getTerminalWsUrl() {
     rows: String(size.rows),
   });
   if (terminalSessionName) params.set("session", terminalSessionName);
+  if (terminalResetPending) {
+    // One-shot: the Reconnect button ends the current session and starts fresh.
+    params.set("reset", "1");
+    terminalResetPending = false;
+  }
   return `${proto}://${location.host}${path}?${params.toString()}`;
 }
 
@@ -744,7 +752,9 @@ function initTerminalBindings() {
   });
 
   bindNodeOnce(btnTerminalReconnectEl, "clickBound", () => {
-    terminalFollowOutput = isTerminalPinnedToBottom();
+    terminalFollowOutput = true;
+    // Reconnect = end the session and start a fresh one (not just re-attach).
+    terminalResetPending = true;
     connectTerminal(true);
   });
 

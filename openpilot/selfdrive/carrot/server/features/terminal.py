@@ -95,6 +95,30 @@ class PersistentPtySession:
     async with self.lock:
       return self._snapshot_locked()
 
+  def _terminate_proc_locked(self) -> None:
+    proc = self.proc
+    self.proc = None
+    if self.reader_task:
+      self.reader_task.cancel()
+      self.reader_task = None
+    if proc is not None and proc.poll() is None:
+      try:
+        os.killpg(proc.pid, signal.SIGHUP)
+      except Exception:
+        try:
+          proc.terminate()
+        except Exception:
+          pass
+
+  async def terminate(self) -> None:
+    # Kill the current login shell (and its process group) and drop the
+    # scrollback so the next attach spawns a brand-new session — this is what
+    # the Reconnect button uses to mean "end this session and start fresh".
+    async with self.lock:
+      self._terminate_proc_locked()
+      self._close_fds_locked()
+      self.history.clear()
+
   async def ensure(self, rows: int, cols: int) -> bool:
     async with self.lock:
       if self._alive_locked():
@@ -409,8 +433,11 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
 
   rows = int(request.query.get("rows") or 28)
   cols = int(request.query.get("cols") or 100)
+  reset = request.query.get("reset") in ("1", "true", "yes")
 
   try:
+    if reset:
+      await PTY_SESSION.terminate()
     await PTY_SESSION.attach(ws, rows, cols)
   except Exception as e:
     await ws.send_str(json.dumps({
@@ -449,7 +476,8 @@ async def ws_terminal_pty(request: web.Request) -> web.WebSocketResponse:
             elif action == "refresh":
               await PTY_SESSION.write(b"\x0c")
             elif action == "detach":
-              await PTY_SESSION.write(b"\x02d")
+              # AGNOS tmux prefix is backtick, not Ctrl-B, so detach = ` then d.
+              await PTY_SESSION.write(b"\x60d")
         except Exception as e:
           await ws.send_str(json.dumps({
             "type": "error",
