@@ -19,7 +19,13 @@
 
 html[data-kb-open="1"] .page--terminal {
   --terminal-bottom-gap: calc(var(--kb-inset) + env(safe-area-inset-bottom, 0px));
-  --terminal-controls-bottom: calc(var(--kb-gap) + env(safe-area-inset-bottom, 0px));
+  --terminal-controls-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-vk="1"][data-kb-open="1"] .page--terminal {
+  top: 0;
+  width: 100dvw;
+  height: calc(100dvh - var(--kb-inset) - env(safe-area-inset-bottom, 0px));
 }
 
 .terminal-shell {
