@@ -406,6 +406,32 @@ body.support-terminal-dialog-open .app-toast-host {
   font-weight: 700;
 }
 
+/* xterm.js grid host — fills the same slot as .terminal-screen. Horizontal
+   padding tracks --terminal-inline so it stays aligned across breakpoints;
+   xterm owns its own scroll/viewport. */
+.terminal-xterm {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  padding: var(--sp-sm) var(--terminal-inline);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--md-surface) 92%, #000);
+}
+
+.terminal-xterm[hidden] {
+  display: none !important;
+}
+
+.terminal-xterm .xterm {
+  height: 100%;
+  padding: 0;
+}
+
+.terminal-xterm .xterm-viewport {
+  background-color: transparent !important;
+  overscroll-behavior: contain;
+}
+
 .terminal-form {
   flex: 0 0 auto;
   display: grid;

@@ -13,6 +13,7 @@ const terminalInputEl = document.getElementById("terminalInput");
 const btnTerminalCtrlCEl = document.getElementById("btnTerminalCtrlC");
 const btnTerminalClearEl = document.getElementById("btnTerminalClear");
 const btnTerminalReconnectEl = document.getElementById("btnTerminalReconnect");
+const terminalXtermEl = document.getElementById("terminalXterm");
 
 let terminalWs = null;
 let terminalReconnectTimer = null;
@@ -25,6 +26,106 @@ let terminalFollowOutput = true;
 let terminalCurrentCwd = "/data/openpilot";
 let terminalScrollRaf = 0;
 const terminalUsePty = true;
+
+// Real terminal emulation via xterm.js (grid renderer): interprets cursor
+// moves / clears / colors / alternate-screen, so full-screen TUIs (btop, vim,
+// nested tmux) render correctly instead of the naive append-only fallback.
+// Falls back to the legacy <pre> renderer if xterm.js failed to load.
+let terminalXterm = null;
+let terminalXtermFit = null;
+let terminalXtermActive = false;
+
+function readCssVar(name, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function terminalXtermSupported() {
+  return !!(terminalXtermEl
+    && typeof window.Terminal === "function"
+    && window.FitAddon
+    && typeof window.FitAddon.FitAddon === "function");
+}
+
+function ensureTerminalXterm() {
+  if (terminalXterm) return terminalXterm;
+  if (!terminalXtermSupported()) return null;
+  const term = new window.Terminal({
+    fontFamily: readCssVar("--font-mono", "ui-monospace, \"Roboto Mono\", Menlo, monospace"),
+    fontSize: 13,
+    lineHeight: 1.15,
+    cursorBlink: true,
+    scrollback: 5000,
+    convertEol: false,
+    allowProposedApi: true,
+    allowTransparency: true,
+    theme: {
+      background: "rgba(0,0,0,0)",
+      foreground: readCssVar("--md-on-surface", "#e6e9ef"),
+      cursor: readCssVar("--md-primary", "#7ee0a0"),
+      cursorAccent: "#0b0f14",
+      selectionBackground: "rgba(120,160,255,0.35)",
+    },
+  });
+  const fit = new window.FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(terminalXtermEl);
+  // Keystrokes typed directly into the grid drive interactive programs.
+  term.onData((data) => {
+    terminalFollowOutput = true;
+    sendTerminalPacket({ type: "raw", data }, { quiet: true });
+  });
+  term.onResize(({ cols, rows }) => {
+    sendTerminalPacket({ type: "resize", cols, rows }, { quiet: true });
+  });
+  terminalXterm = term;
+  terminalXtermFit = fit;
+  return term;
+}
+
+function activateTerminalXterm() {
+  if (!terminalXtermSupported()) return false;
+  // Reveal the grid host before opening so xterm can measure its cell size
+  // (a display:none container yields no dimensions).
+  if (terminalScreenEl) terminalScreenEl.hidden = true;
+  if (terminalXtermEl) terminalXtermEl.hidden = false;
+  const term = ensureTerminalXterm();
+  if (!term) {
+    if (terminalScreenEl) terminalScreenEl.hidden = false;
+    if (terminalXtermEl) terminalXtermEl.hidden = true;
+    return false;
+  }
+  terminalXtermActive = true;
+  fitTerminalXterm();
+  return true;
+}
+
+function fitTerminalXterm() {
+  if (!terminalXtermActive || !terminalXtermFit) return;
+  try {
+    terminalXtermFit.fit();
+  } catch (e) {
+    /* container not laid out yet */
+  }
+}
+
+function currentTerminalSize() {
+  if (terminalXtermActive && terminalXtermFit && terminalXtermFit.proposeDimensions) {
+    try {
+      const dims = terminalXtermFit.proposeDimensions();
+      if (dims && dims.cols && dims.rows) {
+        return { cols: Math.max(20, dims.cols | 0), rows: Math.max(6, dims.rows | 0) };
+      }
+    } catch (e) {
+      /* fall through to estimate */
+    }
+  }
+  return estimateTerminalSize();
+}
 
 function setTerminalMeta(text) {
   if (terminalMetaEl) terminalMetaEl.textContent = String(text || "");
@@ -370,7 +471,7 @@ function closeTerminalSocket() {
 
 function getTerminalWsUrl() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const size = estimateTerminalSize();
+  const size = currentTerminalSize();
   const path = terminalUsePty ? "/ws/terminal_pty" : "/ws/terminal";
   return `${proto}://${location.host}${path}?session=${encodeURIComponent(terminalSessionName)}&cols=${size.cols}&rows=${size.rows}`;
 }
@@ -388,8 +489,11 @@ function estimateTerminalSize() {
 }
 
 function sendTerminalResize() {
+  // fit() emits onResize (which sends) when the geometry actually changes;
+  // the explicit send below also covers the first, unchanged measurement.
+  if (terminalXtermActive) fitTerminalXterm();
   if (!terminalUsePty || !terminalWs || terminalWs.readyState !== WebSocket.OPEN) return;
-  sendTerminalPacket({ type: "resize", ...estimateTerminalSize() }, { quiet: true });
+  sendTerminalPacket({ type: "resize", ...currentTerminalSize() }, { quiet: true });
 }
 
 function scheduleTerminalReconnect(delay = 1200) {
@@ -431,7 +535,8 @@ function connectTerminal(force = false) {
   }
 
   setTerminalMeta(getUIText("connecting", "connecting..."));
-  if (terminalUsePty) clearTerminalViewport();
+  if (terminalXtermActive && terminalXterm) terminalXterm.reset();
+  else if (terminalUsePty) clearTerminalViewport();
 
   let ws;
   try {
@@ -464,12 +569,17 @@ function connectTerminal(force = false) {
       setTerminalMeta(data.mode === "pty"
         ? getUIText("connected", "connected")
         : (data.created ? getUIText("terminal_ready", "tmux ready") : getUIText("connected", "connected")));
+      if (terminalXtermActive && terminalXterm) {
+        fitTerminalXterm();
+        terminalXterm.focus();
+      }
       sendTerminalResize();
       return;
     }
 
     if (data.type === "pty_output") {
-      appendTerminalPtyOutput(data.text || "");
+      if (terminalXtermActive && terminalXterm) terminalXterm.write(data.text || "");
+      else appendTerminalPtyOutput(data.text || "");
       if (terminalMetaEl && terminalMetaEl.textContent === getUIText("connecting", "connecting...")) {
         setTerminalMeta(getUIText("connected", "connected"));
       }
@@ -545,7 +655,8 @@ function initTerminalBindings() {
 
   bindNodeOnce(btnTerminalClearEl, "clickBound", () => {
     terminalFollowOutput = true;
-    clearTerminalViewport();
+    if (terminalXtermActive && terminalXterm) terminalXterm.clear();
+    else clearTerminalViewport();
     sendTerminalControl("clear");
   });
 
@@ -560,9 +671,10 @@ function initTerminalPage() {
   terminalFollowOutput = true;
   terminalCurrentCwd = "/data/openpilot";
   initTerminalBindings();
+  activateTerminalXterm();
   setTerminalSessionMeta();
   updateTerminalViewportMetrics();
-  if (!terminalLastScreen) setTerminalScreen(" ", true);
+  if (!terminalXtermActive && !terminalLastScreen) setTerminalScreen(" ", true);
   requestAnimationFrame(updateTerminalToastAnchor);
   requestAnimationFrame(updateTerminalOverflowState);
   window.setTimeout(updateTerminalToastAnchor, 90);
