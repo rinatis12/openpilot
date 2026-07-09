@@ -1,6 +1,6 @@
 "use strict";
 
-// Terminal page — tmux WebSocket client.
+// Terminal page tmux WebSocket client.
 
 /* ---------- Terminal ---------- */
 const terminalMetaEl = document.getElementById("terminalMeta");
@@ -39,7 +39,7 @@ let terminalCtrlSticky = false;
 let terminalLayoutRaf = 0;
 
 // Raw escape sequences for the on-screen key bar (Esc/Tab/arrows) so touch
-// devices — which have no physical Esc/Ctrl/arrow keys — can still drive
+// devices that have no physical Esc/Ctrl/arrow keys can still drive
 // interactive programs (vim, btop, less) that the shell input box cannot.
 const TERMINAL_KEY_SEQ = {
   esc: "\x1b",
@@ -82,7 +82,7 @@ function terminalXtermSupported() {
     && typeof window.FitAddon.FitAddon === "function");
 }
 
-// Smaller cell on narrow screens so more columns fit — terminals wrap at the
+// Smaller cell on narrow screens so more columns fit. Terminals wrap at the
 // column width (they don't scroll horizontally), so more columns = less
 // wrapping / less truncation of wide output on phones.
 function terminalFontSize() {
@@ -249,7 +249,7 @@ function rewriteTerminalMetaEcho(text) {
       arg = arg.slice(1, -1);
     }
     const label = getUIText("terminal_meta_running", "Carrot command");
-    return `▶ ${label}: ::${arg}`;
+    return `> ${label}: ::${arg}`;
   });
 }
 
@@ -458,51 +458,6 @@ function updateTerminalToastAnchor() {
 
 function updateTerminalViewportMetrics() {
   updateAppViewportMetrics();
-  const vv = window.visualViewport;
-  const landscapeRail = typeof isLandscapeRailMode === "function" && isLandscapeRailMode();
-  const layoutHeight = Math.max(320, Math.round(window.innerHeight || vv?.height || 0));
-  const height = Math.max(320, Math.round(vv?.height || window.innerHeight || 0));
-  const viewportTop = Math.max(0, Math.round(vv?.offsetTop || 0));
-  const vk = navigator.virtualKeyboard;
-  const vkActive = !!(vk && document.documentElement.dataset.vk);
-  // VK API mode: visualViewport does NOT shrink for the keyboard, so derive the
-  // occlusion (keys + Samsung suggestion toolbar) from the keyboard's own
-  // bounding rect. Otherwise fall back to the visualViewport delta.
-  const keyboardInset = vkActive
-    ? Math.round((vk.boundingRect && vk.boundingRect.height) || 0)
-    : Math.max(0, Math.round(layoutHeight - height - viewportTop));
-  const keyboardOpen = !landscapeRail && keyboardInset > 120;
-  const desktopBottomNav = window.matchMedia?.("(min-width: 769px)")?.matches;
-  const restingBottomGap = landscapeRail
-    ? `calc(14px + env(safe-area-inset-bottom, 0px))`
-    : `calc(var(--nav-bar-height${desktopBottomNav ? "-desktop" : ""}) + env(safe-area-inset-bottom, 0px))`;
-  const restingControlsBottom = landscapeRail
-    ? `max(10px, env(safe-area-inset-bottom, 0px))`
-    : `calc(8px + env(safe-area-inset-bottom, 0px))`;
-  document.documentElement.style.setProperty("--terminal-vv-height", `${height}px`);
-  document.documentElement.style.setProperty("--terminal-vv-top", `${keyboardOpen ? 0 : viewportTop}px`);
-  const layoutStyle = terminalPageEl?.style || document.documentElement.style;
-  // In VK mode --terminal-vv-height is the FULL height (vv doesn't shrink), so the
-  // page height must also subtract the keyboard occlusion via the bottom gap; the
-  // form's own inner margin stays a small constant. In non-VK mode vv-height is
-  // already reduced, so only the small gap is needed.
-  // Page ends at the keyboard top (VK: subtract the keyboard occlusion since the
-  // visual viewport didn't shrink; non-VK: vv already excludes it), and the input
-  // form keeps the shared --kb-gap above that — same gap the dialogs use.
-  const keyboardBottomGap = vkActive
-    ? `calc(${keyboardInset}px + env(safe-area-inset-bottom, 0px))`
-    : `env(safe-area-inset-bottom, 0px)`;
-  layoutStyle.setProperty(
-    "--terminal-bottom-gap",
-    keyboardOpen ? keyboardBottomGap : restingBottomGap,
-  );
-  layoutStyle.setProperty(
-    "--terminal-controls-bottom",
-    keyboardOpen
-      ? `calc(var(--kb-gap) + env(safe-area-inset-bottom, 0px))`
-      : restingControlsBottom,
-  );
-  document.documentElement.classList.toggle("terminal-keyboard-open", keyboardOpen);
 }
 
 function bindTerminalLayoutObservers() {
@@ -764,7 +719,7 @@ function initTerminalBindings() {
   }
 
   // Click anywhere on the grid host focuses the terminal so a physical (PC)
-  // keyboard drives it directly — Esc/Ctrl/arrows are handled natively by xterm.
+  // keyboard drives it directly. Esc/Ctrl/arrows are handled natively by xterm.
   if (terminalXtermEl && terminalXtermEl.dataset.focusBound !== "1") {
     terminalXtermEl.dataset.focusBound = "1";
     terminalXtermEl.addEventListener("mousedown", () => {
@@ -798,13 +753,7 @@ function teardownTerminalPage() {
     cancelAnimationFrame(terminalLayoutRaf);
     terminalLayoutRaf = 0;
   }
-  document.documentElement.style.removeProperty("--terminal-vv-height");
-  document.documentElement.style.removeProperty("--terminal-vv-top");
-  const layoutStyle = terminalPageEl?.style || document.documentElement.style;
-  layoutStyle.removeProperty("--terminal-bottom-gap");
-  layoutStyle.removeProperty("--terminal-controls-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-bottom");
   document.documentElement.style.removeProperty("--terminal-toast-left");
   document.documentElement.style.removeProperty("--terminal-toast-width");
-  document.documentElement.classList.remove("terminal-keyboard-open");
 }
